@@ -1,0 +1,76 @@
+# Project Specific #
+####################
+*.vdi
+*.iso
+*.vmdk
+*.ovf
+packer_cache
+*tfstate*
+maestro/env
+kitchen/site-cookbooks
+.kitchen
+*.retry
+
+# Junk #
+########
+*.py[cod]
+*.egg-info
+.DS_Store
+
+# PyCharm
+.idea/
+
+/bin
+/eggs
+/etc
+/parts
+/var
+/src
+/.virtualenv
+/develop-eggs
+/node_modules
+
+/coverage
+/.coverage
+
+/.installed.cfg
+/.mr.developer.cfg
+/local*.cfg
+
+/enable_*
+
+/.project
+/.pydevproject
+
+# NetBeans
+/nbproject
+
+# Sublime Text
+/*.sublime-*
+/.codeintel
+/data
+
+# Emacs
+\#*#
+
+# Working files/folders
+/-*
+
+# Magix
+.delivery
+.terraform
+
+# Secrets
+secrets
+env/
+*.env
+*.key
+*.crt
+*.pem
+*.pub
+.deployment.log
+.jointoken.txt
+*.bak
+topology.json
+.vscode/
+.dockerconfigjson
