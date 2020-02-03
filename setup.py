@@ -31,6 +31,6 @@ setup(
     ],
     entry_points="""
     [console_scripts]
-    konverge=konverge:execute
+    konverge=konverge.execute:execute
     """,
 )
