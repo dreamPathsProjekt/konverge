@@ -13,4 +13,5 @@ def execute():
     # print(client.get_cluster_vms())
     # id_prefix = get_template_id_prefix(scale=3, node='vhost2')
     # print(get_template_vmid_from_os_type(id_prefix, os_type='ubuntu'))
-    print(client.get_all_cluster_node_interfaces_verbose('vhost2'))
+    print(client.get_or_create_pool('test'))
+    print(client.get_cluster_node_interfaces())

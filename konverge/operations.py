@@ -11,6 +11,17 @@ class ProxmoxAPIClient:
             verify_ssl=verify_ssl
         )
 
+    def get_resource_pools(self, name=None):
+        if name:
+            return [pool.get('poolid') for pool in self.client.pools.get() if pool.get('poolid') == name][0]
+        return [pool.get('poolid') for pool in self.client.pools.get()]
+
+    def get_or_create_pool(self, name):
+        if name in self.get_resource_pools():
+            return name
+        self.client.pools.create(poolid=name)
+        return self.get_resource_pools(name)
+
     def get_all_cluster_nodes_verbose(self):
         return self.client.cluster.resources.get(type='node')
 
@@ -28,9 +39,12 @@ class ProxmoxAPIClient:
         node_resource = self.get_cluster_nodes(node)[0]
         return [lxc for lxc in self.client.nodes(node_resource['name']).lxc.get()]
 
-    def get_all_cluster_node_interfaces_verbose(self, node=None):
+    def get_all_cluster_node_bridge_interfaces_verbose(self, node=None):
+        if node:
+            node_resource = self.get_cluster_nodes(node=node)[0]
+            return self.client.nodes(node_resource['name']).network.get(type='bridge')
         return [
-            self.client.nodes(node_resource['name']).network.get()
+            self.client.nodes(node_resource['name']).network.get(type='bridge')
             for node_resource in self.get_cluster_nodes(node=node)
         ]
 
@@ -79,3 +93,19 @@ class ProxmoxAPIClient:
             for lxc in lxcs
         ]
 
+    def get_cluster_node_interfaces(self, node=None):
+        def get_keys_from_iface(interface):
+            return {
+                'name': interface.get('iface'),
+                'cidr': interface.get('cidr'),
+                'gateway': interface.get('gateway'),
+                'address': interface.get('address')
+            }
+
+        interfaces = self.get_all_cluster_node_bridge_interfaces_verbose(node=node)
+        if node:
+            return [get_keys_from_iface(interface) for interface in interfaces]
+        return [[
+            get_keys_from_iface(interface)
+            for interface in interface_list] for interface_list in interfaces
+        ]
