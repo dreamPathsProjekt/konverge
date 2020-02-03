@@ -16,5 +16,7 @@ echo "source <(kubectl completion bash)" >> "${HOME}"/.bashrc
 ## Installation
 
 ```Bash
-pip install -e git+git@github.com:dreamPathsProjekt/konverge.git#egg=konverge
+# Upgrade pip to version ==20.0.2
+pip install --upgrade pip
+pip install -e git+https://github.com/dreamPathsProjekt/konverge#egg=konverge
 ```
