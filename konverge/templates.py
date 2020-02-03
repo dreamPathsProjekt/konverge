@@ -30,21 +30,21 @@ class CloudinitTemplate:
         else:
             return CloudinitTemplate
 
-    def _update_description(self):
+    def update_description(self):
         self.vm_attributes.description = '"Generic Linux base template VM created by CloudImage."'
 
     def download_cloudinit_image(self, proxmox_ssh_node):
-        storage_details = self.client.get_storage_detail_path_content(type=self.vm_attributes.storage)
+        storage_details = self.client.get_storage_detail_path_content(storage_type=self.vm_attributes.storage)
         directory = 'images' if 'images' in storage_details.get('content') else ''
-
+        location = os.path.join(storage_details.get('path'), directory)
         cloud_image = self.os_type_factory(os_type=self.vm_attributes.os_type).cloud_image
-        items = self.client.get_storage_content_items(node=self.vm_attributes.node, type=self.vm_attributes.storage)
+
+        items = self.client.get_storage_content_items(node=self.vm_attributes.node, storage_type=self.vm_attributes.storage)
         image_items = list(filter(lambda item: cloud_image in item.get('name'), items))
         if image_items:
             print(crayons.green(f'Cloud image: {cloud_image} already exists.'))
             return image_items
 
-        location = os.path.join(storage_details.get('path'), directory)
         logging.warning(crayons.yellow(f'Cloud image: {cloud_image} not found. Searching in {location}.'))
         image_filename = os.path.join(location, cloud_image)
         proxmox_host = Connection(proxmox_ssh_node)
@@ -65,6 +65,14 @@ class CloudinitTemplate:
             vmid=self.vmid
         )
 
+    def get_vm_config(self, vmid):
+        return self.client.get_vm_config(node=self.vm_attributes.node, vmid=vmid)
+
+    def get_storage_from_config(self, vmid):
+        config = self.get_vm_config(vmid)
+        volume = config.get(self.driver) if config else None
+        return volume.split(',')[0].strip() if volume else None
+
     def import_cloudinit_image(self):
         pass
 
@@ -73,7 +81,7 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     cloud_image = 'bionic-server-cloudimg-amd64.img'
     full_url = f'https://cloud-images.ubuntu.com/bionic/current/{cloud_image}'
 
-    def _update_description(self):
+    def update_description(self):
         self.vm_attributes.description = '"Ubuntu 18.04.3 base template VM created by CloudImage."'
 
 
@@ -81,5 +89,5 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     cloud_image = 'CentOS-7-x86_64-GenericCloud.qcow2'
     full_url = f'https://cloud.centos.org/centos/7/images/{cloud_image}'
 
-    def _update_description(self):
+    def update_description(self):
         self.vm_attributes.description = '"CentOS 7 base template VM created by CloudImage."'
