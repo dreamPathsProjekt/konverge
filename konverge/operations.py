@@ -28,9 +28,19 @@ class ProxmoxAPIClient:
         node_resource = self.get_cluster_nodes(node)[0]
         return [lxc for lxc in self.client.nodes(node_resource['name']).lxc.get()]
 
+    def get_all_cluster_node_interfaces_verbose(self, node=None):
+        return [
+            self.client.nodes(node_resource['name']).network.get()
+            for node_resource in self.get_cluster_nodes(node=node)
+        ]
+
     def get_cluster_nodes(self, node=None):
         if node:
-            nodes = [node_resource for node_resource in self.get_all_cluster_nodes_verbose() if node_resource.get('node') == node]
+            nodes = [
+                node_resource
+                for node_resource in self.get_all_cluster_nodes_verbose()
+                if node_resource.get('node') == node
+            ]
         else:
             nodes = self.get_all_cluster_nodes_verbose()
         return [
