@@ -2,6 +2,34 @@
 
 ## Pre-requisites
 
+### Access to Proxmox Cluster & environment variables
+
+- You need to export credentials for a __Proxmox VE__ cluster
+
+```Bash
+# Syntax
+export PROXMOX_HOST=<host-or-ip>:<port>
+export PROXMOX_USER=<username>@pam or <username@pve>
+export PROXMOX_PASSWORD=<password>
+
+# Example
+export PROXMOX_HOST=10.100.1.1:443
+export PROXMOX_USER=myuser@pve
+export PROXMOX_PASSWORD=myuserpass
+```
+
+- You will also need __superuser__ or `root` access to Proxmox __nodes__ via ssh & an appropriate `~/.ssh/config` entry
+
+```Bash
+# Example
+Host node1.proxmox
+HostName 10.100.1.1
+User root
+IdentityFile ~/.ssh/node1.pem
+```
+
+- Finally you will need to have, or generate a `.pem` RSA private/public keypair for access to VMs or `LXC` containers that will be created.
+
 ### Install `kubectl` CLI
 
 ```Bash
