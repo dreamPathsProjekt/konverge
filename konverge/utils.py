@@ -1,5 +1,9 @@
+import logging
 from enum import Enum
-from typing import Union
+
+import crayons
+
+from fabric2 import Connection
 
 
 def get_template_id_prefix(id_prefix=1, scale=3, node=None):
@@ -58,7 +62,7 @@ class VMAttributes:
             memory=1024,
             disk_size=5,
             scsi=False,
-            storage_type: Union[Storage, str] = None
+            storage_type: Storage = None
     ):
         self.name = name
         self.node = node
@@ -70,3 +74,61 @@ class VMAttributes:
         self.disk_size = disk_size
         self.scsi = scsi
         self.storage = storage_type
+
+
+class FabricWrapper:
+    def __init__(
+            self,
+            host,
+            user=None,
+            password=None,
+            key_filename=None,
+            key_passphrase=None,
+            port=22,
+            sudo=False
+    ):
+        self.sudo = sudo
+        if not user and not password and not key_filename:
+            # Get details from ~/.ssh/config
+            self.connection = Connection(host)
+        elif key_filename and not password:
+            self.connection = Connection(
+                host=host,
+                user=user,
+                port=port,
+                connect_kwargs={
+                    'key_filename': key_filename,
+                    'passphrase': key_passphrase
+                }
+            )
+        elif not key_filename and password:
+            self.connection = Connection(
+                host=host,
+                user=user,
+                port=port,
+                connect_kwargs={
+                    'password': password
+                }
+            )
+        elif key_filename and password:
+            self.connection = Connection(
+                host=host,
+                user=user,
+                port=port,
+                connect_kwargs={
+                    'key_filename': key_filename,
+                    'passphrase': key_passphrase if key_passphrase else password
+                }
+            )
+        else:
+            logging.error(
+                crayons.red(f'You need to provide either a private key_filename or password to connect to {host} with user: {user}')
+            )
+            self.connection = None
+
+    def execute(self, command, **kwargs):
+        if not self.connection:
+            logging.error(crayons.red('No connection object instantiated.'))
+            return None
+        return self.connection.sudo(command, **kwargs) if self.sudo else self.connection.run(command, **kwargs)
+

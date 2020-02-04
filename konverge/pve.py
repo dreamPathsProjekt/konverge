@@ -1,8 +1,3 @@
-import logging
-import crayons
-
-from typing import Union
-
 from proxmoxer import ProxmoxAPI
 
 from konverge.utils import (
@@ -116,19 +111,12 @@ class ProxmoxAPIClient:
             for interface in interface_list] for interface_list in interfaces
         ]
 
-    def _get_all_cluster_storage_verbose(self, storage_type: Union[Storage, str] = None):
+    def _get_all_cluster_storage_verbose(self, storage_type: Storage = None):
         if not storage_type:
             return self.client.storage.get()
-        if isinstance(storage_type, str) and not Storage.has_value(storage_type):
-            logging.error(crayons.red(f'Invalid storage type: {storage_type}'))
-            return []
-        return (
-            self.client.storage.get(type=storage_type)
-        ) if isinstance(storage_type, str) else (
-            self.client.storage.get(type=storage_type.value)
-        )
+        return self.client.storage.get(type=storage_type.value)
 
-    def get_cluster_storage(self, storage_type: Union[Storage, str] = None, verbose=False):
+    def get_cluster_storage(self, storage_type: Storage = None, verbose=False):
         storages = self._get_all_cluster_storage_verbose(storage_type=storage_type)
         if verbose:
             return storages
@@ -142,11 +130,11 @@ class ProxmoxAPIClient:
             ]
         return []
 
-    def get_storage_detail_path_content(self, storage_type: Union[Storage, str] = None):
+    def get_storage_detail_path_content(self, storage_type: Storage = None):
         storage_details = self.get_cluster_storage(storage_type=storage_type, verbose=True)[0]
         path = storage_details.get('path')
         content = storage_details.get('content').split(',')
-        if storage_type == Storage.zfspool.value or storage_type == Storage.zfspool:
+        if storage_type == Storage.zfspool:
             path = storage_details.get('pool')
         return {
             'name': storage_details.get('storage'),
@@ -154,7 +142,7 @@ class ProxmoxAPIClient:
             'content': content
         }
 
-    def get_storage_content_items(self, node, storage_type: Union[Storage, str] = None, verbose=False):
+    def get_storage_content_items(self, node, storage_type: Storage = None, verbose=False):
         node_resource = self.get_cluster_nodes(node)[0]
         storage_details = self.get_cluster_storage(storage_type=storage_type, verbose=True)[0]
         items = self.client.nodes(node_resource['name']).storage(storage_details['storage']).content.get()
@@ -162,7 +150,7 @@ class ProxmoxAPIClient:
             return items
         return [
             {
-                'name': item.get('volid').split('/')[-1] if storage_type == Storage.nfs.value or storage_type == Storage.nfs else item.get('name'),
+                'name': item.get('volid').split('/')[-1] if storage_type == Storage.nfs else item.get('name'),
                 'volume': item.get('content'),
                 'volid': item.get('volid')
             }

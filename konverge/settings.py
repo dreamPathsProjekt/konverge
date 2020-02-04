@@ -1,6 +1,7 @@
 import os
 
-from konverge.operations import ProxmoxAPIClient
+from konverge.pve import ProxmoxAPIClient
+# from konverge.utils import FabricWrapper
 
 
 client = ProxmoxAPIClient(
