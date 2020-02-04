@@ -1,10 +1,7 @@
 import os
 import time
-import logging
 
-import crayons
-
-from konverge.pve import ProxmoxAPIClient, BootMedia
+from konverge.pve import logging, crayons, ProxmoxAPIClient, BootMedia
 from konverge.utils import VMAttributes, FabricWrapper, get_template_id_prefix, get_template_vmid_from_os_type
 
 
@@ -17,8 +14,7 @@ class CloudinitTemplate:
             vm_attributes: VMAttributes,
             client: ProxmoxAPIClient,
             proxmox_node: FabricWrapper = None,
-            unused_driver = 'unused0',
-            install_prereqs = True
+            unused_driver = 'unused0'
     ):
         self.vm_attributes = vm_attributes
         self.client = client
@@ -29,7 +25,6 @@ class CloudinitTemplate:
         self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
         self.unused_driver = unused_driver
-        self.install_prereqs = install_prereqs
 
         self._update_description()
         (
@@ -100,10 +95,14 @@ class CloudinitTemplate:
     def get_vm_config(self):
         return self.client.get_vm_config(node=self.vm_attributes.node, vmid=self.vmid)
 
-    def get_storage_from_config(self):
+    def get_storage_from_config(self, driver):
         config = self.get_vm_config()
-        volume = config.get(self.unused_driver) if config else None
+        volume = config.get(driver) if config else None
         return volume.split(',')[0].strip() if volume else None
+
+    def get_storage(self, unused=True):
+        driver = self.unused_driver if unused else self.driver
+        return self.get_storage_from_config(driver)
 
     def import_cloudinit_image(self, image_filename):
         if not image_filename:
@@ -175,9 +174,6 @@ class CloudinitTemplate:
         time.sleep(5)
         return response
 
-    def install_kube_tools(self):
-        pass
-
     def export_template(self):
         self.client.export_vm_template(
             node=self.vm_attributes.node,
@@ -190,7 +186,7 @@ class CloudinitTemplate:
         logging.warning(crayons.yellow(self.create_base_vm()))
 
         self.import_cloudinit_image(image_filename)
-        volume = self.get_storage_from_config()
+        volume = self.get_storage(unused=True)
 
         print()
         logging.warning(crayons.yellow(self.attach_volume_to_vm(volume)))
@@ -203,13 +199,9 @@ class CloudinitTemplate:
         print()
         self.set_vga_display()
 
-        if self.install_prereqs:
-            self.start_vm()
-            self.install_kube_tools()
-            self.stop_vm()
-
         print()
         self.export_template()
+        return self.vmid
 
 
 class UbuntuCloudInitTemplate(CloudinitTemplate):
@@ -217,11 +209,7 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     full_url = f'https://cloud-images.ubuntu.com/bionic/current/{cls_cloud_image}'
 
     def _update_description(self):
-        prefix = 'Kubernetes ' if self.install_prereqs else ''
-        self.vm_attributes.description = f'"Ubuntu 18.04.3 {prefix}base template VM created by CloudImage."'
-
-    def install_kube_tools(self):
-        pass
+        self.vm_attributes.description = f'"Ubuntu 18.04.3 base template VM created by CloudImage."'
 
 
 class CentosCloudInitTemplate(CloudinitTemplate):
@@ -229,8 +217,4 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     full_url = f'https://cloud.centos.org/centos/7/images/{cls_cloud_image}'
 
     def _update_description(self):
-        prefix = 'Kubernetes ' if self.install_prereqs else ''
-        self.vm_attributes.description = f'"CentOS 7 {prefix}base template VM created by CloudImage."'
-
-    def install_kube_tools(self):
-        pass
+        self.vm_attributes.description = f'"CentOS 7 base template VM created by CloudImage."'

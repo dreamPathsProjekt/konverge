@@ -1,4 +1,9 @@
+import logging
+
+import crayons
+
 from proxmoxer import ProxmoxAPI
+from proxmoxer.core import ResourceException
 
 from konverge.utils import (
     Storage,
@@ -249,3 +254,45 @@ class ProxmoxAPIClient:
             disk=driver,
             size=f'{disk_size}G'
         )
+
+    def inject_vm_cloudinit(self, node, vmid, ssh_keyname, vm_ip, gateway, netmask='24'):
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=False,
+            sshkeys=ssh_keyname,
+            ipconfig0=f'ip={vm_ip}/{netmask},gw={gateway}'
+        )
+
+    def get_ip_config_from_vm_cloudinit(self, node, vmid, ipconfig_slot=0):
+        config = self.get_vm_config(node, vmid)
+        ip_config = config.get(f'ipconfig{ipconfig_slot}')
+        if not ip_config:
+            return None, None, None
+
+        ip, gw = ip_config.split(',')
+        ip_address, netmask = ip.split('/')
+        ip_address = ip_address.split('=')[-1]
+        gateway = gw.split('=')[-1]
+        return ip_address, netmask, gateway
+
+    def agent_get_interfaces(self, node, vmid, verbose=False, filter_lo=True):
+        node_resource = self.get_cluster_nodes(node)[0]
+        try:
+            response = self.client.nodes(node_resource['name']).qemu(vmid).agent.get('network-get-interfaces')
+        except ResourceException as agent_not_running:
+            logging.error(crayons.red(f'Qemu guest agent is not running in {vmid}'))
+            logging.error(crayons.red(agent_not_running))
+            return None
+        if verbose:
+            return response
+
+        stripped = [
+            {
+                'name': result.get('name'),
+                'ip_addresses': [address.get('ip-address') for address in result.get('ip-addresses') if address.get('ip-address-type') == 'ipv4']
+            }
+            for result in response.get('result')
+        ]
+        filtered = list(filter(lambda iface: iface.get('name') != 'lo', stripped))
+        return filtered if filter_lo else stripped

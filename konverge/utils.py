@@ -15,15 +15,15 @@ def get_template_id_prefix(id_prefix=1, scale=3, node=None):
     return id_prefix
 
 
-def get_template_vmid_from_os_type(id_prefix, os_type='ubuntu'):
+def get_template_vmid_from_os_type(id_prefix, os_type='ubuntu', parent=True):
     if os_type == 'ubuntu':
-        template_vmid = int(f'{id_prefix}000')
+        template_vmid = int(f'{id_prefix}000') if parent else int(f'{id_prefix}100')
         username = 'ubuntu'
     elif os_type == 'centos':
-        template_vmid = int(f'{id_prefix}001')
+        template_vmid = int(f'{id_prefix}001') if parent else int(f'{id_prefix}101')
         username = 'centos'
     else:
-        template_vmid = int(f'{id_prefix}000')
+        template_vmid = int(f'{id_prefix}000') if parent else int(f'{id_prefix}100')
         username = 'ubuntu'
     return template_vmid, username
 

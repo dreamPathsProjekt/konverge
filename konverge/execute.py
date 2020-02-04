@@ -19,7 +19,8 @@ def execute():
     ubuntu_template = ubuntu_template_factory(vm_attributes=template_attributes, client=client, proxmox_node=proxmox_node)
     # print(ubuntu_template.vm_attributes.description)
     # print(ubuntu_template.download_cloudinit_image())
-    print(ubuntu_template.get_storage_from_config())
+    print(ubuntu_template.get_storage(unused=False))
+
     # print(client.get_storage_content_items('vhost', type='nfs'))
     # print(client.get_cluster_node_interfaces())
     # print(client.get_cluster_node_dns('vhost2'))
