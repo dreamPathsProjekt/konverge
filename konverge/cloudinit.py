@@ -238,7 +238,7 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
         return template_vmid, username
 
     def install_kube(self):
-        pass
+        filename = 'bootstrap/req_ubuntu.sh'
 
 
 class CentosCloudInitTemplate(CloudinitTemplate):
@@ -254,6 +254,6 @@ class CentosCloudInitTemplate(CloudinitTemplate):
         return template_vmid, username
 
     def install_kube(self):
-        pass
+        filename = 'bootstrap/req_redhat.sh'
 
 
