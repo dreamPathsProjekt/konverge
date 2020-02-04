@@ -6,28 +6,6 @@ import crayons
 from fabric2 import Connection
 
 
-def get_template_id_prefix(id_prefix=1, scale=3, node=None):
-    if not node:
-        return id_prefix
-    for i in range(1, scale + 1):
-        if str(i) in node:
-            return str(i)
-    return id_prefix
-
-
-def get_template_vmid_from_os_type(id_prefix, os_type='ubuntu', preinstall=True):
-    if os_type == 'ubuntu':
-        template_vmid = int(f'{id_prefix}000') if preinstall else int(f'{id_prefix}100')
-        username = 'ubuntu'
-    elif os_type == 'centos':
-        template_vmid = int(f'{id_prefix}001') if preinstall else int(f'{id_prefix}101')
-        username = 'centos'
-    else:
-        template_vmid = int(f'{id_prefix}000') if preinstall else int(f'{id_prefix}100')
-        username = 'ubuntu'
-    return template_vmid, username
-
-
 class Storage(Enum):
     cephfs = 'cephfs'
     cifs = 'cifs'
@@ -139,3 +117,11 @@ class FabricWrapper:
             return None
         return self.connection.sudo(command, **kwargs) if self.sudo else self.connection.run(command, **kwargs)
 
+
+def get_id_prefix(id_prefix=1, scale=3, node=None):
+    if not node:
+        return id_prefix
+    for i in range(1, scale + 1):
+        if str(i) in node:
+            return str(i)
+    return id_prefix

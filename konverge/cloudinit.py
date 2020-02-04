@@ -5,8 +5,7 @@ from konverge.pve import logging, crayons, VMAPIClient, BootMedia
 from konverge.utils import (
     VMAttributes,
     FabricWrapper,
-    get_template_id_prefix,
-    get_template_vmid_from_os_type
+    get_id_prefix
 )
 
 
@@ -28,12 +27,7 @@ class CloudinitTemplate:
         self.unused_driver = unused_driver
         self.preinstall = preinstall
 
-        id_prefix = get_template_id_prefix(scale=1, node=self.vm_attributes.node)
-        self.vmid, _ = get_template_vmid_from_os_type(
-            id_prefix=id_prefix,
-            os_type=self.vm_attributes.os_type,
-            preinstall=self.preinstall
-        )
+        self.vmid, _ = self.get_vmid_and_username()
         self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
 
@@ -72,6 +66,13 @@ class CloudinitTemplate:
         location = os.path.join(storage_details.get('path'), directory)
         storage = storage_details.get('name')
         return storage, storage_details, location
+
+    def generate_vmid(self, id_prefix):
+        raise NotImplementedError
+
+    def get_vmid_and_username(self):
+        id_prefix = get_id_prefix(scale=1, node=self.vm_attributes.node)
+        return self.generate_vmid(id_prefix=id_prefix)
 
     def download_cloudinit_image(self):
         items = self.client.get_storage_content_items(node=self.vm_attributes.node, storage_type=self.vm_attributes.storage_type)
@@ -231,6 +232,11 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     def _update_description(self):
         self.vm_attributes.description = f'"Ubuntu 18.04.3 base template VM created by CloudImage."'
 
+    def generate_vmid(self, id_prefix, preinstall=True):
+        template_vmid = int(f'{id_prefix}000') if self.preinstall else int(f'{id_prefix}100')
+        username = 'ubuntu'
+        return template_vmid, username
+
     def install_kube(self):
         pass
 
@@ -242,5 +248,12 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     def _update_description(self):
         self.vm_attributes.description = f'"CentOS 7 base template VM created by CloudImage."'
 
+    def generate_vmid(self, id_prefix):
+        template_vmid = int(f'{id_prefix}001') if self.preinstall else int(f'{id_prefix}101')
+        username = 'centos'
+        return template_vmid, username
+
     def install_kube(self):
         pass
+
+
