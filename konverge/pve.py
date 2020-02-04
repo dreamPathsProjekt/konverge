@@ -22,6 +22,14 @@ class ProxmoxAPIClient:
             verify_ssl=verify_ssl
         )
 
+    @staticmethod
+    def api_client_factory(instance_type='vm'):
+        types = {
+            'vm': VMAPIClient,
+            'lxc': LXCAPIClient
+        }
+        return types.get(instance_type)
+
     def get_resource_pools(self, name=None):
         if name:
             return [pool.get('poolid') for pool in self.client.pools.get() if pool.get('poolid') == name][0]
@@ -53,9 +61,12 @@ class ProxmoxAPIClient:
             for node in nodes
         ]
 
+    def _get_single_node_resource(self, node):
+        return self.get_cluster_nodes(node)[0]
+
     def get_cluster_vms(self, node=None, verbose=False):
         if node:
-            node_resource = self.get_cluster_nodes(node)[0]
+            node_resource = self._get_single_node_resource(node)
             vms = [vm for vm in self.client.nodes(node_resource['name']).qemu.get()]
         else:
             vms = self.client.cluster.resources.get(type='vm')
@@ -73,7 +84,7 @@ class ProxmoxAPIClient:
 
     def get_cluster_lxc(self, node=None, verbose=False):
         if node:
-            node_resource = self.get_cluster_nodes(node)[0]
+            node_resource = self._get_single_node_resource(node)
             lxcs = [lxc for lxc in self.client.nodes(node_resource['name']).lxc.get()]
         else:
             lxcs = self.client.cluster.resources.get(type='lxc')
@@ -163,8 +174,10 @@ class ProxmoxAPIClient:
             for item in items
         ]
 
+
+class VMAPIClient(ProxmoxAPIClient):
     def create_vm(self, vm_attributes: VMAttributes, vmid):
-        node_resource = self.get_cluster_nodes(vm_attributes.node)[0]
+        node_resource = self._get_single_node_resource(vm_attributes.node)
         return self.client.nodes(node_resource['name']).qemu.create(
             vmid=vmid,
             acpi=1,
@@ -183,31 +196,31 @@ class ProxmoxAPIClient:
         )
 
     def start_vm(self, node, vmid):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).status.start.post()
 
     def shutdown_vm(self, node, vmid, timeout=20):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).status.shutdown.post(timeout=timeout)
 
     def stop_vm(self, node, vmid, timeout=20):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).status.stop.post(timeout=timeout)
 
     def destroy_vm(self, node, vmid):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).delete()
 
     def export_vm_template(self, node, vmid):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).template.post()
 
     def get_vm_config(self, node, vmid):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).config.get()
 
     def update_vm_config(self, node, vmid, storage_operation=False, **vm_kwargs):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         operation = (
             self.client.nodes(node_resource['name']).qemu(vmid).config.post
         ) if storage_operation else (
@@ -249,7 +262,7 @@ class ProxmoxAPIClient:
         )
 
     def resize_disk(self, node, vmid, driver='virtio0', disk_size=5):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).resize.put(
             disk=driver,
             size=f'{disk_size}G'
@@ -277,7 +290,7 @@ class ProxmoxAPIClient:
         return ip_address, netmask, gateway
 
     def agent_get_interfaces(self, node, vmid, verbose=False, filter_lo=True):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         try:
             response = self.client.nodes(node_resource['name']).qemu(vmid).agent.get('network-get-interfaces')
         except ResourceException as agent_not_running:
@@ -290,9 +303,14 @@ class ProxmoxAPIClient:
         stripped = [
             {
                 'name': result.get('name'),
-                'ip_addresses': [address.get('ip-address') for address in result.get('ip-addresses') if address.get('ip-address-type') == 'ipv4']
+                'ip_addresses': [address.get('ip-address') for address in result.get('ip-addresses') if
+                                 address.get('ip-address-type') == 'ipv4']
             }
             for result in response.get('result')
         ]
         filtered = list(filter(lambda iface: iface.get('name') != 'lo', stripped))
         return filtered if filter_lo else stripped
+
+
+class LXCAPIClient(ProxmoxAPIClient):
+    pass

@@ -1,4 +1,4 @@
-from konverge.settings import client
+from konverge.settings import vm_client
 from konverge.utils import VMAttributes, Storage, FabricWrapper
 from konverge.templates import CloudinitTemplate
 
@@ -16,7 +16,7 @@ def execute():
         storage_type=Storage.nfs
     )
     ubuntu_template_factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
-    ubuntu_template = ubuntu_template_factory(vm_attributes=template_attributes, client=client, proxmox_node=proxmox_node)
+    ubuntu_template = ubuntu_template_factory(vm_attributes=template_attributes, client=vm_client, proxmox_node=proxmox_node)
     # print(ubuntu_template.vm_attributes.description)
     # print(ubuntu_template.download_cloudinit_image())
     print(ubuntu_template.get_storage(unused=False))

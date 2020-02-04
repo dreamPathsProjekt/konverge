@@ -1,7 +1,7 @@
 import os
 import time
 
-from konverge.pve import logging, crayons, ProxmoxAPIClient, BootMedia
+from konverge.pve import logging, crayons, VMAPIClient, BootMedia
 from konverge.utils import VMAttributes, FabricWrapper, get_template_id_prefix, get_template_vmid_from_os_type
 
 
@@ -12,7 +12,7 @@ class CloudinitTemplate:
     def __init__(
             self,
             vm_attributes: VMAttributes,
-            client: ProxmoxAPIClient,
+            client: VMAPIClient,
             proxmox_node: FabricWrapper = None,
             unused_driver = 'unused0'
     ):
