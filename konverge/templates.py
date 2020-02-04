@@ -2,7 +2,12 @@ import os
 import time
 
 from konverge.pve import logging, crayons, VMAPIClient, BootMedia
-from konverge.utils import VMAttributes, FabricWrapper, get_template_id_prefix, get_template_vmid_from_os_type
+from konverge.utils import (
+    VMAttributes,
+    FabricWrapper,
+    get_template_id_prefix,
+    get_template_vmid_from_os_type
+)
 
 
 class CloudinitTemplate:
@@ -14,17 +19,23 @@ class CloudinitTemplate:
             vm_attributes: VMAttributes,
             client: VMAPIClient,
             proxmox_node: FabricWrapper = None,
-            unused_driver = 'unused0'
+            unused_driver = 'unused0',
+            preinstall = True
     ):
         self.vm_attributes = vm_attributes
         self.client = client
         self.proxmox_node = proxmox_node if proxmox_node else FabricWrapper(host=vm_attributes.node)
+        self.unused_driver = unused_driver
+        self.preinstall = preinstall
 
         id_prefix = get_template_id_prefix(scale=1, node=self.vm_attributes.node)
-        self.vmid, _ = get_template_vmid_from_os_type(id_prefix=id_prefix, os_type=self.vm_attributes.os_type)
+        self.vmid, _ = get_template_vmid_from_os_type(
+            id_prefix=id_prefix,
+            os_type=self.vm_attributes.os_type,
+            preinstall=self.preinstall
+        )
         self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
-        self.unused_driver = unused_driver
 
         self._update_description()
         (
@@ -180,6 +191,9 @@ class CloudinitTemplate:
             vmid=self.vmid
         )
 
+    def install_kube(self):
+        raise NotImplementedError
+
     def execute(self):
         image_filename = self.download_cloudinit_image()
         print()
@@ -199,6 +213,12 @@ class CloudinitTemplate:
         print()
         self.set_vga_display()
 
+        if self.preinstall:
+            # TODO: Add step to inject cloudinit variables, before start.
+            self.start_vm()
+            self.install_kube()
+            self.stop_vm()
+
         print()
         self.export_template()
         return self.vmid
@@ -211,6 +231,9 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     def _update_description(self):
         self.vm_attributes.description = f'"Ubuntu 18.04.3 base template VM created by CloudImage."'
 
+    def install_kube(self):
+        pass
+
 
 class CentosCloudInitTemplate(CloudinitTemplate):
     cls_cloud_image = 'CentOS-7-x86_64-GenericCloud.qcow2'
@@ -218,3 +241,6 @@ class CentosCloudInitTemplate(CloudinitTemplate):
 
     def _update_description(self):
         self.vm_attributes.description = f'"CentOS 7 base template VM created by CloudImage."'
+
+    def install_kube(self):
+        pass
