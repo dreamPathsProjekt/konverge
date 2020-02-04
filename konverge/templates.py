@@ -148,7 +148,7 @@ class CloudinitTemplate:
 
     def set_vga_display(self):
         """
-        Set VGA display (Many Cloud-Init images rely on this, as it is an requirement for OpenStack images.)
+        Set VGA display. Many Cloud-Init images rely on this, as it is an requirement for OpenStack images.
         """
         self.client.update_vm_config(
             node=self.vm_attributes.node,
