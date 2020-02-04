@@ -1,9 +1,10 @@
 import os
+import time
 import logging
 
 import crayons
 
-from konverge.pve import ProxmoxAPIClient
+from konverge.pve import ProxmoxAPIClient, BootMedia
 from konverge.utils import VMAttributes, FabricWrapper, get_template_id_prefix, get_template_vmid_from_os_type
 
 
@@ -15,7 +16,9 @@ class CloudinitTemplate:
             self,
             vm_attributes: VMAttributes,
             client: ProxmoxAPIClient,
-            proxmox_node: FabricWrapper = None
+            proxmox_node: FabricWrapper = None,
+            unused_driver = 'unused0',
+            install_prereqs = True
     ):
         self.vm_attributes = vm_attributes
         self.client = client
@@ -25,9 +28,15 @@ class CloudinitTemplate:
         self.vmid, _ = get_template_vmid_from_os_type(id_prefix=id_prefix, os_type=self.vm_attributes.os_type)
         self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
+        self.unused_driver = unused_driver
+        self.install_prereqs = install_prereqs
 
         self._update_description()
-        self.storage_details, self.location = self.get_storage_details()
+        (
+            self.storage,
+            self.storage_details,
+            self.location
+        ) = self._get_storage_details()
 
     @property
     def cloud_image(self):
@@ -51,14 +60,15 @@ class CloudinitTemplate:
     def _update_description(self):
         self.vm_attributes.description = '"Generic Linux base template VM created by CloudImage."'
 
-    def get_storage_details(self):
-        storage_details = self.client.get_storage_detail_path_content(storage_type=self.vm_attributes.storage)
+    def _get_storage_details(self):
+        storage_details = self.client.get_storage_detail_path_content(storage_type=self.vm_attributes.storage_type)
         directory = 'images' if 'images' in storage_details.get('content') else ''
         location = os.path.join(storage_details.get('path'), directory)
-        return storage_details, location
+        storage = storage_details.get('name')
+        return storage, storage_details, location
 
     def download_cloudinit_image(self):
-        items = self.client.get_storage_content_items(node=self.vm_attributes.node, storage_type=self.vm_attributes.storage)
+        items = self.client.get_storage_content_items(node=self.vm_attributes.node, storage_type=self.vm_attributes.storage_type)
         image_items = list(filter(lambda item: self.cloud_image in item.get('name'), items))
         if image_items:
             print(crayons.green(f'Cloud image: {self.cloud_image} already exists.'))
@@ -73,7 +83,12 @@ class CloudinitTemplate:
 
         logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found in {self.location}. Downloading {self.full_image_url}'))
         get_image_command = f'rm -f {self.cloud_image}; wget {self.full_image_url} && mv {self.cloud_image} {self.location}'
-        self.proxmox_node.execute(get_image_command)
+        created = self.proxmox_node.execute(get_image_command)
+        if created.ok:
+            print(crayons.green(f'Vm: {self.vm_attributes.name} id: {self.vmid} created successfully.'))
+        else:
+            logging.error(crayons.red(f'Error during creation of Vm: {self.vm_attributes.name} id: {self.vmid}'))
+            return None
         return image_filename
 
     def create_base_vm(self):
@@ -82,16 +97,119 @@ class CloudinitTemplate:
             vmid=self.vmid
         )
 
-    def get_vm_config(self, vmid):
-        return self.client.get_vm_config(node=self.vm_attributes.node, vmid=vmid)
+    def get_vm_config(self):
+        return self.client.get_vm_config(node=self.vm_attributes.node, vmid=self.vmid)
 
-    def get_storage_from_config(self, vmid):
-        config = self.get_vm_config(vmid)
-        volume = config.get(self.driver) if config else None
+    def get_storage_from_config(self):
+        config = self.get_vm_config()
+        volume = config.get(self.unused_driver) if config else None
         return volume.split(',')[0].strip() if volume else None
 
-    def import_cloudinit_image(self):
+    def import_cloudinit_image(self, image_filename):
+        if not image_filename:
+            logging.error(crayons.red(f'Cannot import image: {self.cloud_image}. Filename: {image_filename}'))
+            return
+        print(crayons.cyan(f'Importing Image: {self.cloud_image}'))
+        imported = self.proxmox_node.execute(f'qm importdisk {self.vmid} {image_filename} {self.storage}')
+        if imported.ok:
+            print(crayons.green(f'Image {self.cloud_image} imported successfully.'))
+
+    def attach_volume_to_vm(self, volume):
+        return self.client.attach_volume_to_vm(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            scsi=self.vm_attributes.scsi,
+            volume=volume,
+            disk_size=self.vm_attributes.disk_size
+        )
+
+    def add_cloudinit_drive(self, drive_slot='2'):
+        return self.client.add_cloudinit_drive(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            storage_name=self.storage,
+            drive_slot=drive_slot
+        )
+
+    def set_boot_disk(self):
+        return self.client.set_boot_disk(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            boot=BootMedia.hard_disk,
+            driver=self.driver
+        )
+
+    def resize_disk(self):
+        self.client.resize_disk(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            driver=self.driver,
+            disk_size=self.vm_attributes.disk_size
+        )
+
+    def set_vga_display(self):
+        """
+        Set VGA display (Many Cloud-Init images rely on this, as it is an requirement for OpenStack images.)
+        """
+        self.client.update_vm_config(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            storage_operation=False,
+            serial0='socket',
+            vga='serial0'
+        )
+
+    def start_vm(self):
+        response = self.client.start_vm(
+            node=self.vm_attributes.node,
+            vmid=self.vmid
+        )
+        time.sleep(5)
+        return response
+
+    def stop_vm(self):
+        response = self.client.stop_vm(
+            node=self.vm_attributes.node,
+            vmid=self.vmid
+        )
+        time.sleep(5)
+        return response
+
+    def install_kube_tools(self):
         pass
+
+    def export_template(self):
+        self.client.export_vm_template(
+            node=self.vm_attributes.node,
+            vmid=self.vmid
+        )
+
+    def execute(self):
+        image_filename = self.download_cloudinit_image()
+        print()
+        logging.warning(crayons.yellow(self.create_base_vm()))
+
+        self.import_cloudinit_image(image_filename)
+        volume = self.get_storage_from_config()
+
+        print()
+        logging.warning(crayons.yellow(self.attach_volume_to_vm(volume)))
+        print()
+        logging.warning(crayons.yellow(self.add_cloudinit_drive()))
+        print()
+        logging.warning(crayons.yellow(self.set_boot_disk()))
+        print()
+        self.resize_disk()
+        print()
+        self.set_vga_display()
+
+        if self.install_prereqs:
+            self.start_vm()
+            self.install_kube_tools()
+            self.stop_vm()
+
+        print()
+        self.export_template()
 
 
 class UbuntuCloudInitTemplate(CloudinitTemplate):
@@ -99,7 +217,11 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     full_url = f'https://cloud-images.ubuntu.com/bionic/current/{cls_cloud_image}'
 
     def _update_description(self):
-        self.vm_attributes.description = '"Ubuntu 18.04.3 base template VM created by CloudImage."'
+        prefix = 'Kubernetes ' if self.install_prereqs else ''
+        self.vm_attributes.description = f'"Ubuntu 18.04.3 {prefix}base template VM created by CloudImage."'
+
+    def install_kube_tools(self):
+        pass
 
 
 class CentosCloudInitTemplate(CloudinitTemplate):
@@ -107,4 +229,8 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     full_url = f'https://cloud.centos.org/centos/7/images/{cls_cloud_image}'
 
     def _update_description(self):
-        self.vm_attributes.description = '"CentOS 7 base template VM created by CloudImage."'
+        prefix = 'Kubernetes ' if self.install_prereqs else ''
+        self.vm_attributes.description = f'"CentOS 7 {prefix}base template VM created by CloudImage."'
+
+    def install_kube_tools(self):
+        pass

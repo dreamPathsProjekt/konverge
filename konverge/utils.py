@@ -50,6 +50,13 @@ class Storage(Enum):
         return value in cls._value2member_map_
 
 
+class BootMedia(Enum):
+    floppy = 'a'
+    hard_disk = 'c'
+    cdrom = 'd'
+    network = 'n'
+
+
 class VMAttributes:
     def __init__(
             self,
@@ -73,7 +80,7 @@ class VMAttributes:
         self.memory = memory
         self.disk_size = disk_size
         self.scsi = scsi
-        self.storage = storage_type
+        self.storage_type = storage_type
 
 
 class FabricWrapper:

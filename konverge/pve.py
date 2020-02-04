@@ -2,7 +2,8 @@ from proxmoxer import ProxmoxAPI
 
 from konverge.utils import (
     Storage,
-    VMAttributes
+    VMAttributes,
+    BootMedia
 )
 
 
@@ -172,10 +173,79 @@ class ProxmoxAPIClient:
             ballon=vm_attributes.memory,
             sockets=1,
             cores=vm_attributes.cpus,
-            storage=self.client.get_cluster_storage(type=vm_attributes.storage)[0].get('name'),
+            storage=self.client.get_cluster_storage(type=vm_attributes.storage_type)[0].get('name'),
             net0=f'model=virtio,bridge=vmbr0,firewall=1'
         )
+
+    def start_vm(self, node, vmid):
+        node_resource = self.get_cluster_nodes(node)[0]
+        return self.client.nodes(node_resource['name']).qemu(vmid).status.start.post()
+
+    def shutdown_vm(self, node, vmid, timeout=20):
+        node_resource = self.get_cluster_nodes(node)[0]
+        return self.client.nodes(node_resource['name']).qemu(vmid).status.shutdown.post(timeout=timeout)
+
+    def stop_vm(self, node, vmid, timeout=20):
+        node_resource = self.get_cluster_nodes(node)[0]
+        return self.client.nodes(node_resource['name']).qemu(vmid).status.stop.post(timeout=timeout)
+
+    def destroy_vm(self, node, vmid):
+        node_resource = self.get_cluster_nodes(node)[0]
+        return self.client.nodes(node_resource['name']).qemu(vmid).delete()
+
+    def export_vm_template(self, node, vmid):
+        node_resource = self.get_cluster_nodes(node)[0]
+        self.client.nodes(node_resource['name']).qemu(vmid).template.post()
 
     def get_vm_config(self, node, vmid):
         node_resource = self.get_cluster_nodes(node)[0]
         return self.client.nodes(node_resource['name']).qemu(vmid).config.get()
+
+    def update_vm_config(self, node, vmid, storage_operation=False, **vm_kwargs):
+        node_resource = self.get_cluster_nodes(node)[0]
+        operation = (
+            self.client.nodes(node_resource['name']).qemu(vmid).config.post
+        ) if storage_operation else (
+            self.client.nodes(node_resource['name']).qemu(vmid).config.put
+        )
+        return operation(**vm_kwargs)
+
+    def attach_volume_to_vm(self, node, vmid, scsihw='virtio-scsi-pci', scsi=False, volume='virtio0', disk_size=5):
+        volume_details = f'file="{volume}",size={disk_size}G'
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            scsihw=scsihw,
+            scsi0=volume_details
+        ) if scsi else self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            scsihw=scsihw,
+            virtio0=volume_details
+        )
+
+    def add_cloudinit_drive(self, node, vmid, storage_name, drive_slot=2):
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            vm_kwargs={f'ide{drive_slot}': storage_name}
+        )
+
+    def set_boot_disk(self, node, vmid, driver, boot: BootMedia = BootMedia.hard_disk):
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            boot=boot.value,
+            bootdisk=driver
+        )
+
+    def resize_disk(self, node, vmid, driver='virtio0', disk_size=5):
+        node_resource = self.get_cluster_nodes(node)[0]
+        self.client.nodes(node_resource['name']).qemu(vmid).resize.put(
+            disk=driver,
+            size=f'{disk_size}G'
+        )
