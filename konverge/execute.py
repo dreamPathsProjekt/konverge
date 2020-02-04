@@ -1,8 +1,6 @@
 from konverge.settings import client
 from konverge.utils import VMAttributes, Storage, FabricWrapper
-from konverge.templates import (
-    CloudinitTemplate
-)
+from konverge.templates import CloudinitTemplate
 
 
 def execute():
