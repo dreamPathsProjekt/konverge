@@ -47,7 +47,9 @@ class VMAttributes:
             memory=1024,
             disk_size=5,
             scsi=False,
-            storage_type: Storage = None
+            storage_type: Storage = None,
+            ssh_keyname='',
+            gateway=''
     ):
         self.name = name
         self.node = node
@@ -59,6 +61,20 @@ class VMAttributes:
         self.disk_size = disk_size
         self.scsi = scsi
         self.storage_type = storage_type
+        self.ssh_keyname = ssh_keyname
+        self.gateway = gateway
+
+    @property
+    def public_ssh_key(self):
+        return f'{self.ssh_keyname}.pub'
+
+    @property
+    def private_pem_ssh_key(self):
+        return f'{self.ssh_keyname}.pem'
+
+    @property
+    def private_ssh_key(self):
+        return self.ssh_keyname if 'id_rsa' in self.ssh_keyname else f'{self.ssh_keyname}.key'
 
 
 class FabricWrapper:

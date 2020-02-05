@@ -1,15 +1,18 @@
 import os
 import time
+import logging
 
-from konverge.pve import logging, crayons, VMAPIClient, BootMedia
+import crayons
+
+from konverge.pve import VMAPIClient
+from konverge.mixins import CommonVMMixin
 from konverge.utils import (
     VMAttributes,
-    FabricWrapper,
-    get_id_prefix
+    FabricWrapper
 )
 
 
-class CloudinitTemplate:
+class CloudinitTemplate(CommonVMMixin):
     cls_cloud_image = ''
     full_url = ''
 
@@ -40,39 +43,25 @@ class CloudinitTemplate:
 
     @property
     def cloud_image(self):
-        cls = self.os_type_factory(os_type=self.vm_attributes.os_type)
-        return cls.cls_cloud_image
+        return self.cls_cloud_image
 
     @property
     def full_image_url(self):
-        cls = self.os_type_factory(os_type=self.vm_attributes.os_type)
-        return cls.full_url
+        return self.full_url
 
-    @classmethod
-    def os_type_factory(cls, os_type='ubuntu'):
-        if os_type == 'ubuntu':
-            return UbuntuCloudInitTemplate
-        elif os_type == 'centos':
-            return CentosCloudInitTemplate
-        else:
-            return CloudinitTemplate
+    @staticmethod
+    def os_type_factory(os_type='ubuntu'):
+        options = {
+            'ubuntu': UbuntuCloudInitTemplate,
+            'centos': CentosCloudInitTemplate
+        }
+        return options.get(os_type)
 
     def _update_description(self):
         self.vm_attributes.description = '"Generic Linux base template VM created by CloudImage."'
 
-    def _get_storage_details(self):
-        storage_details = self.client.get_storage_detail_path_content(storage_type=self.vm_attributes.storage_type)
-        directory = 'images' if 'images' in storage_details.get('content') else ''
-        location = os.path.join(storage_details.get('path'), directory)
-        storage = storage_details.get('name')
-        return storage, storage_details, location
-
     def generate_vmid(self, id_prefix):
         raise NotImplementedError
-
-    def get_vmid_and_username(self):
-        id_prefix = get_id_prefix(scale=1, node=self.vm_attributes.node)
-        return self.generate_vmid(id_prefix=id_prefix)
 
     def download_cloudinit_image(self):
         items = self.client.get_storage_content_items(node=self.vm_attributes.node, storage_type=self.vm_attributes.storage_type)
@@ -98,24 +87,6 @@ class CloudinitTemplate:
             return None
         return image_filename
 
-    def create_base_vm(self):
-        return self.client.create_vm(
-            vm_attributes=self.vm_attributes,
-            vmid=self.vmid
-        )
-
-    def get_vm_config(self):
-        return self.client.get_vm_config(node=self.vm_attributes.node, vmid=self.vmid)
-
-    def get_storage_from_config(self, driver):
-        config = self.get_vm_config()
-        volume = config.get(driver) if config else None
-        return volume.split(',')[0].strip() if volume else None
-
-    def get_storage(self, unused=True):
-        driver = self.unused_driver if unused else self.driver
-        return self.get_storage_from_config(driver)
-
     def import_cloudinit_image(self, image_filename):
         if not image_filename:
             logging.error(crayons.red(f'Cannot import image: {self.cloud_image}. Filename: {image_filename}'))
@@ -125,80 +96,13 @@ class CloudinitTemplate:
         if imported.ok:
             print(crayons.green(f'Image {self.cloud_image} imported successfully.'))
 
-    def attach_volume_to_vm(self, volume):
-        return self.client.attach_volume_to_vm(
-            node=self.vm_attributes.node,
-            vmid=self.vmid,
-            scsi=self.vm_attributes.scsi,
-            volume=volume,
-            disk_size=self.vm_attributes.disk_size
-        )
-
-    def add_cloudinit_drive(self, drive_slot='2'):
-        return self.client.add_cloudinit_drive(
-            node=self.vm_attributes.node,
-            vmid=self.vmid,
-            storage_name=self.storage,
-            drive_slot=drive_slot
-        )
-
-    def set_boot_disk(self):
-        return self.client.set_boot_disk(
-            node=self.vm_attributes.node,
-            vmid=self.vmid,
-            boot=BootMedia.hard_disk,
-            driver=self.driver
-        )
-
-    def resize_disk(self):
-        self.client.resize_disk(
-            node=self.vm_attributes.node,
-            vmid=self.vmid,
-            driver=self.driver,
-            disk_size=self.vm_attributes.disk_size
-        )
-
-    def set_vga_display(self):
-        """
-        Set VGA display. Many Cloud-Init images rely on this, as it is an requirement for OpenStack images.
-        """
-        self.client.update_vm_config(
-            node=self.vm_attributes.node,
-            vmid=self.vmid,
-            storage_operation=False,
-            serial0='socket',
-            vga='serial0'
-        )
-
-    def start_vm(self):
-        response = self.client.start_vm(
-            node=self.vm_attributes.node,
-            vmid=self.vmid
-        )
-        time.sleep(5)
-        return response
-
-    def stop_vm(self):
-        response = self.client.stop_vm(
-            node=self.vm_attributes.node,
-            vmid=self.vmid
-        )
-        time.sleep(5)
-        return response
-
-    def export_template(self):
-        self.client.export_vm_template(
-            node=self.vm_attributes.node,
-            vmid=self.vmid
-        )
-
     def install_kube(self):
         raise NotImplementedError
 
     def execute(self):
         image_filename = self.download_cloudinit_image()
         print()
-        logging.warning(crayons.yellow(self.create_base_vm()))
+        logging.warning(crayons.yellow(self.create_vm()))
 
         self.import_cloudinit_image(image_filename)
         volume = self.get_storage(unused=True)
@@ -215,8 +119,9 @@ class CloudinitTemplate:
         self.set_vga_display()
 
         if self.preinstall:
-            # TODO: Add step to inject cloudinit variables, before start.
+            self.inject_cloudinit_values()
             self.start_vm()
+            time.sleep(15)
             self.install_kube()
             self.stop_vm()
 
