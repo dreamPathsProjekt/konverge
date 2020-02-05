@@ -6,6 +6,8 @@ import crayons
 import yaml
 from jsonschema import ValidationError, validate
 
+from konverge.schema import PROXMOX_CLUSTER_SCHEMA
+
 
 class GenericConfigFile:
     schema = None
@@ -51,26 +53,7 @@ class GenericConfigFile:
 
 
 class ProxmoxClusterConfigFile(GenericConfigFile):
-    schema = {
-        'type': 'object',
-        'properties': {
-            'name': {'type': 'string'},
-            'nodes': {
-                'type': 'array',
-                'items': {
-                    'type': 'object',
-                    'properties': {
-                        'name': {'type': 'string'},
-                        'ip': {'type': 'string'}
-                    },
-                    'required': ['name']
-                },
-                'minItems': 1,
-                'uniqueItems': True
-            }
-        },
-        'required': ['name', 'nodes']
-    }
+    schema = PROXMOX_CLUSTER_SCHEMA
 
     def read_yaml_file(self):
         if not self.filename or not self.exists:
@@ -123,7 +106,8 @@ class ConfigSerializer:
         setattr(self, key, ConfigSerializer(value))
 
     def _serialize_values_list(self, value, key):
-        setattr(self, key, [ConfigSerializer(unpacked) for unpacked in value])
+        dispatch = lambda entry: ConfigSerializer(entry) if isinstance(entry, dict) else entry
+        setattr(self, key, [dispatch(unpacked) for unpacked in value])
 
     def __repr__(self):
         """
