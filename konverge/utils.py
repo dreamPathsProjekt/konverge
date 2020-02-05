@@ -134,10 +134,13 @@ class FabricWrapper:
         return self.connection.sudo(command, **kwargs) if self.sudo else self.connection.run(command, **kwargs)
 
 
-def get_id_prefix(id_prefix=1, scale=3, node=None):
+def get_id_prefix(id_prefix=1, proxmox_node_scale=3, node=None):
+    """
+    Default prefix if node name has no number, is 1.
+    """
     if not node:
         return id_prefix
-    for i in range(1, scale + 1):
+    for i in range(1, proxmox_node_scale + 1):
         if str(i) in node:
             return str(i)
     return id_prefix
