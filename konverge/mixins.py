@@ -36,8 +36,8 @@ class CommonVMMixin:
     def generate_vmid(self, id_prefix):
         raise NotImplementedError
 
-    def get_vmid_and_username(self, scale=3):
-        id_prefix = get_id_prefix(proxmox_node_scale=scale, node=self.vm_attributes.node)
+    def get_vmid_and_username(self, proxmox_node_scale=3):
+        id_prefix = get_id_prefix(proxmox_node_scale=proxmox_node_scale, node=self.vm_attributes.node)
         return self.generate_vmid(id_prefix=id_prefix)
 
     def get_vm_config(self):
