@@ -48,6 +48,7 @@ class VMAttributes:
             disk_size=5,
             scsi=False,
             storage_type: Storage = None,
+            image_storage_type: Storage = None,
             ssh_keyname='',
             gateway=''
     ):
@@ -61,6 +62,7 @@ class VMAttributes:
         self.disk_size = disk_size
         self.scsi = scsi
         self.storage_type = storage_type
+        self.image_storage_type = image_storage_type
         self.ssh_keyname = ssh_keyname
         self.gateway = gateway
 

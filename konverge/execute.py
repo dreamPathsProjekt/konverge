@@ -16,6 +16,7 @@ def execute():
         node='vhost',
         pool='utils',
         storage_type=Storage.nfs,
+        image_storage_type=Storage.nfs,
         ssh_keyname='vhost3-vms',
         gateway='10.0.100.105'
     )

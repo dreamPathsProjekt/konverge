@@ -26,8 +26,9 @@ class CommonVMMixin:
     def _update_description(self):
         self.vm_attributes.description = ''
 
-    def _get_storage_details(self):
-        storage_details = self.client.get_storage_detail_path_content(storage_type=self.vm_attributes.storage_type)
+    def _get_storage_details(self, image=False):
+        storage_type = self.vm_attributes.image_storage_type if image else self.vm_attributes.storage_type
+        storage_details = self.client.get_storage_detail_path_content(storage_type=storage_type)
         directory = 'images' if 'images' in storage_details.get('content') else ''
         location = os.path.join(storage_details.get('path'), directory)
         storage = storage_details.get('name')

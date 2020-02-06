@@ -40,6 +40,11 @@ class CloudinitTemplate(CommonVMMixin):
             self.storage_details,
             self.location
         ) = self._get_storage_details()
+        (
+            self.cloudinit_storage,
+            self.cloudinit_storage_details,
+            self.cloudinit_location
+        ) = self._get_storage_details(image=True)
 
     @property
     def cloud_image(self):
@@ -64,26 +69,26 @@ class CloudinitTemplate(CommonVMMixin):
         raise NotImplementedError
 
     def download_cloudinit_image(self):
-        items = self.client.get_storage_content_items(node=self.vm_attributes.node, storage_type=self.vm_attributes.storage_type)
+        items = self.client.get_storage_content_items(node=self.vm_attributes.node, storage_type=self.vm_attributes.image_storage_type)
         image_items = list(filter(lambda item: self.cloud_image in item.get('name'), items))
         if image_items:
             print(crayons.green(f'Cloud image: {self.cloud_image} already exists.'))
             return image_items
 
         logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found. Searching in {self.location}.'))
-        image_filename = os.path.join(self.location, self.cloud_image)
+        image_filename = os.path.join(self.cloudinit_location, self.cloud_image)
         output = self.proxmox_node.execute(f'ls -l {image_filename}', hide=True).stdout.strip()
         if image_filename in output:
-            print(crayons.green(f'Cloud image: {self.cloud_image} already exists in {self.location}.'))
+            print(crayons.green(f'Cloud image: {self.cloud_image} already exists in {self.cloudinit_location}.'))
             return image_filename
 
-        logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found in {self.location}. Downloading {self.full_image_url}'))
-        get_image_command = f'rm -f {self.cloud_image}; wget {self.full_image_url} && mv {self.cloud_image} {self.location}'
-        created = self.proxmox_node.execute(get_image_command)
-        if created.ok:
-            print(crayons.green(f'Vm: {self.vm_attributes.name} id: {self.vmid} created successfully.'))
+        logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found in {self.cloudinit_location}. Downloading {self.full_image_url}'))
+        get_image_command = f'rm -f {self.cloud_image}; wget {self.full_image_url} && mv {self.cloud_image} {self.cloudinit_location}'
+        downloaded = self.proxmox_node.execute(get_image_command)
+        if downloaded.ok:
+            print(crayons.green(f'Image {self.cloud_image} downloaded to {self.cloudinit_location}. Filename: {image_filename}'))
         else:
-            logging.error(crayons.red(f'Error during creation of Vm: {self.vm_attributes.name} id: {self.vmid}'))
+            logging.error(crayons.red(f'Error downloading image {self.cloud_image}'))
             return None
         return image_filename
 
