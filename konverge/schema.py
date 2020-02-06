@@ -9,7 +9,13 @@ PROXMOX_CLUSTER_SCHEMA = {
                 'properties': {
                     'name': {'type': 'string'},
                     'ip': {'type': 'string'},
-                    'host': {'type': 'string'}
+                    'host': {'type': 'string'},
+                    'user': {'type': 'string'},
+                    'password': {'type': 'string'},
+                    'key_filename': {'type': 'string'},
+                    'key_passphrase': {'type': 'string'},
+                    'port': {'type': 'integer'},
+                    'sudo': {'type': 'boolean'}
                 },
                 'required': ['name']
             },
