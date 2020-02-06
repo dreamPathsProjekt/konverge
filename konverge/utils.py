@@ -1,9 +1,12 @@
 import logging
+import os
 from enum import Enum
 
 import crayons
 
-from fabric2 import Connection
+from fabric2 import Connection, Config
+from fabric2.util import get_local_user
+from invoke import Context
 
 
 class Storage(Enum):
@@ -78,6 +81,21 @@ class VMAttributes:
     def private_ssh_key(self):
         return self.ssh_keyname if 'id_rsa' in self.ssh_keyname else f'{self.ssh_keyname}.key'
 
+    @property
+    def public_key_exists(self):
+        return os.path.exists(self.public_ssh_key)
+
+    @property
+    def private_key_exists(self):
+        return os.path.exists(self.private_ssh_key)
+
+    def read_public_key(self):
+        if not self.public_key_exists:
+            return None
+        with open(self.public_ssh_key, mode='r') as pub_file:
+            key_content = pub_file.read().strip()
+        return key_content
+
 
 class FabricWrapper:
     def __init__(
@@ -146,3 +164,72 @@ def get_id_prefix(id_prefix=1, proxmox_node_scale=3, node=None):
         if str(i) in node:
             return str(i)
     return id_prefix
+
+
+def add_ssh_config_entry(host, user, identity, ip):
+    """
+    Add host configuration locally on ~/.ssh/config
+    """
+    local = Context(Config())
+    config_file = f'~/.ssh/config'
+    if not os.path.exists(config_file):
+        local.run(f'mkdir -p ~/.ssh')
+    try:
+        local.run(f'echo "" >> {config_file}')
+        local.run(f'echo "Host {host}" >> {config_file}')
+        local.run(f'echo "Hostname {ip}" >> {config_file}')
+        local.run(f'echo "User {user}" >> {config_file}')
+        local.run(f'echo "Port 22" >> {config_file}')
+        local.run(f'echo "IdentityFile {identity}.pem" >> {config_file}')
+        local.run(f'echo "StrictHostKeyChecking no" >> {config_file}')
+        print(crayons.green(f'Host: {host} added to ~/.ssh/config'))
+    except Exception as generic:
+        logging.error(crayons.red(f'Error during adding host to config: {generic}'))
+
+
+def remove_ssh_config_entry(host, ip, user='ubuntu'):
+    local = Context(Config())
+    home = get_local_user()
+    config_file = f'{home}/.ssh/config'
+    local.run(f'cp {config_file} {config_file}.bak')
+    found = False
+
+    with open(config_file, mode='r') as ssh_config:
+        lines = ssh_config.readlines()
+        for line in lines:
+            index = lines.index(line)
+            try:
+                if (
+                        f'Host {host}' == line.strip().replace('\n', '') and
+                        f'Hostname {ip}' == lines[index + 1].strip().replace('\n', '') and
+                        f'User {user}' == lines[index + 2].strip().replace('\n', '') and
+                        'Port 22' == lines[index + 3].strip().replace('\n', '')
+                ):
+                    print(crayons.magenta('Lines to remove:'))
+                    print(crayons.yellow(line.strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 1].strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 2].strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 3].strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 4].strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 5].strip().replace('\n', '')))
+                    found = True
+                    for i in range(6):
+                        lines[index + i] = ''
+            except IndexError as index_error:
+                logging.error(crayons.red(f'Error during removing host from config: {index_error}'))
+                print(crayons.blue('Performing rollback of ~/.ssh/config'))
+                local.run(f'mv {config_file}.bak {config_file}')
+                print(crayons.green('Rollback complete'))
+                return
+        try:
+            if lines and found:
+                with open(config_file, 'w') as ssh_config_write:
+                    ssh_config_write.writelines(lines)
+                    print(crayons.green('Entry removed from ~/.ssh/config'))
+            else:
+                print(crayons.green('Entry not found'))
+        except Exception as generic:
+            logging.error(crayons.red(f'Error during removing host from config: {generic}'))
+            print(crayons.blue('Performing rollback of ~/.ssh/config'))
+            local.run(f'mv {config_file}.bak {config_file}')
+            print(crayons.green('Rollback complete'))

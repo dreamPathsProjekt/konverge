@@ -268,12 +268,12 @@ class VMAPIClient(ProxmoxAPIClient):
             size=f'{disk_size}G'
         )
 
-    def inject_vm_cloudinit(self, node, vmid, ssh_keyname, vm_ip, gateway, netmask='24'):
+    def inject_vm_cloudinit(self, node, vmid, ssh_key_content, vm_ip, gateway, netmask='24'):
         return self.update_vm_config(
             node=node,
             vmid=vmid,
             storage_operation=False,
-            sshkeys=ssh_keyname,
+            sshkeys=ssh_key_content,
             ipconfig0=f'ip={vm_ip}/{netmask},gw={gateway}'
         )
 

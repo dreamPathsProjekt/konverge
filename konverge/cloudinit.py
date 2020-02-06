@@ -30,7 +30,7 @@ class CloudinitTemplate(CommonVMMixin):
         self.unused_driver = unused_driver
         self.preinstall = preinstall
 
-        self.vmid, _ = self.get_vmid_and_username()
+        self.vmid, self.username = self.get_vmid_and_username()
         self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
 
@@ -45,6 +45,7 @@ class CloudinitTemplate(CommonVMMixin):
             self.cloudinit_storage_details,
             self.cloudinit_location
         ) = self._get_storage_details(image=True)
+        self.allowed_ip = self.generate_allowed_ip()
 
     @property
     def cloud_image(self):

@@ -1,13 +1,17 @@
 import os
 import crayons
+import logging
 
 from konverge.pve import VMAPIClient
 from konverge.utils import (
     VMAttributes,
     FabricWrapper,
     BootMedia,
-    get_id_prefix
+    get_id_prefix,
+    add_ssh_config_entry,
+    remove_ssh_config_entry
 )
+from konverge import settings
 
 
 class CommonVMMixin:
@@ -22,6 +26,8 @@ class CommonVMMixin:
     driver: str
     unused_driver: str
     storage: str
+    username: str
+    allowed_ip: str
 
     def _update_description(self):
         self.vm_attributes.description = ''
@@ -53,6 +59,23 @@ class CommonVMMixin:
         driver = self.unused_driver if unused else self.driver
         return self.get_storage_from_config(driver)
 
+    def generate_allowed_ip(self):
+        network = settings.cluster_config_client.get_network_base()
+        start, end = settings.cluster_config_client.get_allowed_range()
+        allocated = settings.cluster_config_client.get_allocated_ips_from_config(filter=self.vm_attributes.node)
+        allocated.update(self.get_allocated_ips_per_node_interface())
+
+        for subnet_ip in range(start, end):
+            generated_ip = f'{network}.{subnet_ip}'
+            if generated_ip in allocated and subnet_ip == end:
+                logging.error(crayons.red(f'Cannot create any more IP addresses in range: {network}.{start} - {network}.{end}'))
+                return None
+            if generated_ip in allocated:
+                logging.warning(crayons.yellow(f'Exists: {generated_ip}'))
+            if generated_ip not in allocated:
+                print(crayons.green(f'Generated IP: {generated_ip}'))
+                return generated_ip
+
     def get_allocated_ips_per_node_interface(self):
         interfaces = self.client.get_cluster_node_bridge_interfaces(self.vm_attributes.node)
         bridges = [
@@ -80,10 +103,27 @@ class CommonVMMixin:
         return allocated_set
 
     def create_vm(self):
-        return self.client.create_vm(
+        pool = self.client.get_or_create_pool(self.vm_attributes.pool)
+        print(crayons.cyan(f'Resource pool: {pool}'))
+        created = self.client.create_vm(
             vm_attributes=self.vm_attributes,
             vmid=self.vmid
         )
+        if not created:
+            # TODO: get back appropriate response and log
+            pass
+        self.add_ssh_config_entry()
+
+    def destroy_vm(self):
+        deleted = self.client.destroy_vm(
+            node=self.vm_attributes.node,
+            vmid=self.vmid
+        )
+        if not deleted:
+            # TODO: get back appropriate response and log
+            pass
+        self.remove_ssh_config_entry()
+
     def attach_volume_to_vm(self, volume):
         return self.client.attach_volume_to_vm(
             node=self.vm_attributes.node,
@@ -148,10 +188,37 @@ class CommonVMMixin:
         )
 
     def inject_cloudinit_values(self):
+        if not self.vm_attributes.public_key_exists:
+            logging.error(crayons.red(f'Public key: {self.vm_attributes.public_ssh_key} does not exist. Abort'))
+            return
+        if not self.vm_attributes.private_key_exists:
+            logging.warning(
+                crayons.yellow(
+                    f'Private key {self.vm_attributes.private_pem_ssh_key} does not exist in the location of {self.vm_attributes.public_ssh_key}.'
+                )
+            )
+        if not self.allowed_ip:
+            logging.error(crayons.red(f'Allowed ip does not exist.'))
+            return
         self.client.inject_vm_cloudinit(
             node=self.vm_attributes.node,
             vmid=self.vmid,
-            ssh_keyname=self.vm_attributes.public_ssh_key,
-            vm_ip='',
-            gateway=self.vm_attributes.gateway
+            ssh_key_content=self.vm_attributes.read_public_key(),
+            vm_ip=self.allowed_ip,
+            gateway=self.vm_attributes.gateway if self.vm_attributes.gateway else settings.cluster_config_client.gateway
+        )
+
+    def add_ssh_config_entry(self):
+        add_ssh_config_entry(
+            host=self.vm_attributes.name,
+            user=self.username,
+            identity=self.vm_attributes.public_ssh_key,
+            ip=self.allowed_ip
+        )
+
+    def remove_ssh_config_entry(self):
+        remove_ssh_config_entry(
+            host=self.vm_attributes.name,
+            user=self.username,
+            ip=self.allowed_ip
         )

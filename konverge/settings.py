@@ -1,8 +1,11 @@
 import os
 
 from konverge.pve import ProxmoxAPIClient
+from konverge.pvecluster import ProxmoxClusterConfigFile, ClusterConfig
 # from konverge.utils import FabricWrapper
 
+cluster_config = ProxmoxClusterConfigFile()
+cluster_config_client = ClusterConfig(cluster_config)
 
 VMAPIClientFactory = ProxmoxAPIClient.api_client_factory(instance_type='vm')
 vm_client = VMAPIClientFactory(

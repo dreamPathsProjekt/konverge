@@ -17,16 +17,15 @@ def execute():
         pool='utils',
         storage_type=Storage.nfs,
         image_storage_type=Storage.nfs,
-        ssh_keyname='vhost3-vms',
+        ssh_keyname='/home/dritsas/.ssh/vhost3-vms',
         gateway='10.0.100.105'
     )
-    # ubuntu_template_factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
-    # ubuntu_template = ubuntu_template_factory(vm_attributes=template_attributes, client=vm_client, proxmox_node=proxmox_node)
+    ubuntu_template_factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
+    ubuntu_template = ubuntu_template_factory(vm_attributes=template_attributes, client=vm_client, proxmox_node=proxmox_node)
     #
     # print(ubuntu_template.get_storage(unused=False))
     # ubuntu_template.get_allocated_ips_per_node_interface()
+    print(ubuntu_template.generate_allowed_ip())
 
 
-    config = ProxmoxClusterConfigFile().serialize()
-    print(config.nodes[0])
 
