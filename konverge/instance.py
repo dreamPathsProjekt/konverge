@@ -92,6 +92,7 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         if self.vm_attributes.disk_size != self.template.vm_attributes.disk_size:
             self.resize_disk()
 
+    # TODO: WIP
     def execute(self, start=False, destroy=False):
         if destroy:
             self.stop_stage()
