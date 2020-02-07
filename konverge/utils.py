@@ -1,32 +1,15 @@
 import logging
+import os
 from enum import Enum
 
 import crayons
 
-from fabric2 import Connection
+from fabric2 import Connection, Config
+from fabric2.util import get_local_user
+from invoke import Context
 
 
-def get_template_id_prefix(id_prefix=1, scale=3, node=None):
-    if not node:
-        return id_prefix
-    for i in range(1, scale + 1):
-        if str(i) in node:
-            return str(i)
-    return id_prefix
-
-
-def get_template_vmid_from_os_type(id_prefix, os_type='ubuntu'):
-    if os_type == 'ubuntu':
-        template_vmid = int(f'{id_prefix}000')
-        username = 'ubuntu'
-    elif os_type == 'centos':
-        template_vmid = int(f'{id_prefix}001')
-        username = 'centos'
-    else:
-        template_vmid = int(f'{id_prefix}000')
-        username = 'ubuntu'
-    return template_vmid, username
-
+LOCAL = Context(Config())
 
 class Storage(Enum):
     cephfs = 'cephfs'
@@ -50,6 +33,13 @@ class Storage(Enum):
         return value in cls._value2member_map_
 
 
+class BootMedia(Enum):
+    floppy = 'a'
+    hard_disk = 'c'
+    cdrom = 'd'
+    network = 'n'
+
+
 class VMAttributes:
     def __init__(
             self,
@@ -62,7 +52,10 @@ class VMAttributes:
             memory=1024,
             disk_size=5,
             scsi=False,
-            storage_type: Storage = None
+            storage_type: Storage = None,
+            image_storage_type: Storage = None,
+            ssh_keyname='',
+            gateway=''
     ):
         self.name = name
         self.node = node
@@ -73,7 +66,41 @@ class VMAttributes:
         self.memory = memory
         self.disk_size = disk_size
         self.scsi = scsi
-        self.storage = storage_type
+        self.storage_type = storage_type
+        self.image_storage_type = image_storage_type
+        self.ssh_keyname = ssh_keyname
+        self.gateway = gateway
+
+    @property
+    def public_ssh_key(self):
+        return f'{self.ssh_keyname}.pub'
+
+    @property
+    def private_pem_ssh_key(self):
+        return f'{self.ssh_keyname}.pem'
+
+    @property
+    def private_ssh_key(self):
+        return self.ssh_keyname if 'id_rsa' in self.ssh_keyname else f'{self.ssh_keyname}.key'
+
+    @property
+    def public_key_exists(self):
+        return os.path.exists(self.public_ssh_key)
+
+    @property
+    def private_key_exists(self):
+        return os.path.exists(self.private_ssh_key)
+
+    @property
+    def private_pem_ssh_key_exists(self):
+        return os.path.exists(self.private_pem_ssh_key)
+
+    def read_public_key(self):
+        if not self.public_key_exists:
+            return None
+        with open(self.public_ssh_key, mode='r') as pub_file:
+            key_content = pub_file.read().strip()
+        return key_content
 
 
 class FabricWrapper:
@@ -132,3 +159,99 @@ class FabricWrapper:
             return None
         return self.connection.sudo(command, **kwargs) if self.sudo else self.connection.run(command, **kwargs)
 
+
+def get_id_prefix(id_prefix=1, proxmox_node_scale=3, node=None):
+    """
+    Default prefix if node name has no number, is 1.
+    """
+    if not node:
+        return id_prefix
+    for i in range(1, proxmox_node_scale + 1):
+        if str(i) in node:
+            return str(i)
+    return id_prefix
+
+
+def add_ssh_config_entry(host, user, identity, ip):
+    """
+    Add host configuration locally on ~/.ssh/config
+    """
+    local = LOCAL
+    home = get_local_user()
+    config_file = f'/home/{home}/.ssh/config'
+    if not os.path.exists(config_file):
+        logging.warning(crayons.yellow(f'Did not find config file: {config_file}. Creating now.'))
+        local.run(f'mkdir -p ~/.ssh')
+    try:
+        local.run(f'echo "" >> {config_file}')
+        local.run(f'echo "Host {host}" >> {config_file}')
+        local.run(f'echo "Hostname {ip}" >> {config_file}')
+        local.run(f'echo "User {user}" >> {config_file}')
+        local.run(f'echo "Port 22" >> {config_file}')
+        local.run(f'echo "IdentityFile {identity}" >> {config_file}')
+        local.run(f'echo "StrictHostKeyChecking no" >> {config_file}')
+        print(crayons.green(f'Host: {host} added to ~/.ssh/config'))
+    except Exception as generic:
+        logging.error(crayons.red(f'Error during adding host to config: {generic}'))
+
+
+def remove_ssh_config_entry(host, ip, user='ubuntu'):
+    local = LOCAL
+    home = get_local_user()
+    config_file = f'/home/{home}/.ssh/config'
+    local.run(f'cp {config_file} {config_file}.bak')
+    found = False
+
+    if not os.path.exists(config_file):
+        logging.error(crayons.red(f'Did not find config file: {config_file}. Exit.'))
+        return
+
+    with open(config_file, mode='r') as ssh_config:
+        lines = ssh_config.readlines()
+        for line in lines:
+            index = lines.index(line)
+            try:
+                if (
+                        f'Host {host}' == line.strip().replace('\n', '') and
+                        f'Hostname {ip}' == lines[index + 1].strip().replace('\n', '') and
+                        f'User {user}' == lines[index + 2].strip().replace('\n', '') and
+                        'Port 22' == lines[index + 3].strip().replace('\n', '')
+                ):
+                    print(crayons.magenta('Lines to remove:'))
+                    print(crayons.yellow(line.strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 1].strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 2].strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 3].strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 4].strip().replace('\n', '')))
+                    print(crayons.yellow(lines[index + 5].strip().replace('\n', '')))
+                    found = True
+                    for i in range(6):
+                        lines[index + i] = ''
+            except IndexError as index_error:
+                logging.error(crayons.red(f'Error during removing host from config: {index_error}'))
+                print(crayons.blue('Performing rollback of ~/.ssh/config'))
+                local.run(f'mv {config_file}.bak {config_file}')
+                print(crayons.green('Rollback complete'))
+                return
+        try:
+            if lines and found:
+                with open(config_file, 'w') as ssh_config_write:
+                    ssh_config_write.writelines(lines)
+                    print(crayons.green('Entry removed from ~/.ssh/config'))
+            else:
+                print(crayons.green('Entry not found'))
+        except Exception as generic:
+            logging.error(crayons.red(f'Error during removing host from config: {generic}'))
+            print(crayons.blue('Performing rollback of ~/.ssh/config'))
+            local.run(f'mv {config_file}.bak {config_file}')
+            print(crayons.green('Rollback complete'))
+
+
+def clear_server_entry(ip):
+    try:
+        local = LOCAL
+        home = get_local_user()
+        local.run(f'ssh-keygen -f "/home/{home}/.ssh/known_hosts" -R "{ip}"')
+    except Exception as warning:
+        logging.warning(crayons.yellow(f'{ip} not found on ~/.ssh/known_hosts'))
+        logging.warning(crayons.white(warning))
