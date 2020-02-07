@@ -33,6 +33,11 @@ class Storage(Enum):
     def has_value(cls, value):
         return value in cls._value2member_map_
 
+    @classmethod
+    def return_value(cls, value):
+        if cls.has_value(value):
+            return getattr(cls, value)
+
 
 class BootMedia(Enum):
     floppy = 'a'

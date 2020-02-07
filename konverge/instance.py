@@ -26,10 +26,10 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         self.proxmox_node = proxmox_node if proxmox_node else FabricWrapper(host=vm_attributes.node)
         self.self_node = FabricWrapper(host=vm_attributes.name)
 
-        self.vmid, self.username = vmid, username if vmid and username else self.get_vmid_and_username()
+        self.vmid, _ = vmid, None if vmid else self.get_vmid_and_username()
+        _, self.username = None, username if username else self.get_vmid_and_username()
         self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.allowed_ip = ''
-
 
         (
             self.storage,

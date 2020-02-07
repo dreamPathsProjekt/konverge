@@ -228,9 +228,10 @@ class VMAPIClient(ProxmoxAPIClient):
             full=full
         )
 
-    def get_vm_config(self, node, vmid):
+    def get_vm_config(self, node, vmid, current=True):
+        current_values = int(current)
         node_resource = self._get_single_node_resource(node)
-        return self.client.nodes(node_resource['name']).qemu(vmid).config.get()
+        return self.client.nodes(node_resource['name']).qemu(vmid).config.get(current=current_values)
 
     def update_vm_config(self, node, vmid, storage_operation=False, **vm_kwargs):
         node_resource = self._get_single_node_resource(node)
