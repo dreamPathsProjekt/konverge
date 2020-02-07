@@ -1,4 +1,5 @@
 import os
+import time
 import crayons
 import logging
 
@@ -42,12 +43,12 @@ class CommonVMMixin:
         storage = storage_details.get('name')
         return storage, storage_details, location
 
-    def generate_vmid(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix):
         raise NotImplementedError
 
-    def get_vmid_and_username(self, proxmox_node_scale=3):
-        id_prefix = get_id_prefix(proxmox_node_scale=proxmox_node_scale, node=self.vm_attributes.node)
-        return self.generate_vmid(id_prefix=id_prefix)
+    def get_vmid_and_username(self):
+        id_prefix = get_id_prefix(proxmox_node_scale=settings.node_scale, node=self.vm_attributes.node)
+        return self.generate_vmid_and_username(id_prefix=id_prefix)
 
     def get_vm_config(self):
         return self.client.get_vm_config(node=self.vm_attributes.node, vmid=self.vmid)
@@ -111,11 +112,9 @@ class CommonVMMixin:
             vm_attributes=self.vm_attributes,
             vmid=self.vmid
         )
-        print(created)
-        if not created:
-            logging.error(crayons.red(f'Failed to create VM: {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
+        if not self.log_create_delete(created):
+            return created
         self.add_ssh_config_entry()
-        print(crayons.green(f'Create VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}: Success'))
         return created
 
     def destroy_vm(self):
@@ -123,20 +122,64 @@ class CommonVMMixin:
             node=self.vm_attributes.node,
             vmid=self.vmid
         )
-        print(deleted)
-        if not deleted:
-           logging.error(crayons.red(f'Failed to destroy VM: {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
+
+        if not self.log_create_delete(deleted, destroy=True):
+            return deleted
         self.remove_ssh_config_entry()
-        print(crayons.green(f'Destroy VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}: Success'))
         return deleted
 
-    def attach_volume_to_vm(self, volume):
+    def log_create_delete(self, response, destroy=False):
+        prefix = 'Create' if not destroy else 'Destroy'
+        if not response:
+            logging.error(crayons.red(f'Failed to {prefix} VM: {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
+        else:
+            print(crayons.green(f'{prefix} VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}: Success'))
+        return response
+
+    def attach_volume_to_vm(self, volume, root_volume=True, disk_size=5, drive_slot='0'):
         return self.client.attach_volume_to_vm(
             node=self.vm_attributes.node,
             vmid=self.vmid,
             scsi=self.vm_attributes.scsi,
             volume=volume,
-            disk_size=self.vm_attributes.disk_size
+            disk_size=self.vm_attributes.disk_size if root_volume else disk_size,
+            drive_slot=drive_slot
+        )
+
+    def enable_hotplug(self, hotplug='1'):
+        return self.client.enable_hotplug(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            hotplug=hotplug
+        )
+
+    def disable_hotplug(self):
+        return self.client.enable_hotplug(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            disable=True
+        )
+
+    def get_unallocated_disk_slots(self):
+        max_drives = 20
+        slots = [i for i in range(max_drives)]
+        for slot in slots:
+            driver = f'scsi{slot}' if self.vm_attributes.scsi else f'virtio{slot}'
+            volume = self.get_storage_from_config(driver=driver)
+            if volume:
+                logging.warning(crayons.yellow(f'Found allocated volume: {driver}'))
+            else:
+                print(crayons.green(f'Using Unallocated volume: {driver}'))
+                return slot, driver
+
+    def attach_hotplug_drive(self, disk_size=20):
+        slot, driver = self.get_unallocated_disk_slots()
+        print(crayons.cyan(f'Attaching new volume volume type: {self.storage} on driver: {driver}'))
+        return self.attach_volume_to_vm(
+            volume=self.storage,
+            root_volume=False,
+            disk_size=disk_size,
+            drive_slot=str(slot)
         )
 
     def add_cloudinit_drive(self, drive_slot='2'):
@@ -238,7 +281,13 @@ class CommonVMMixin:
         )
         clear_server_entry(ip_address)
 
-    def install_kube(self, filename='req_ubuntu.sh', kubernetes_version='1.16.3-00', docker_version='18.09.7', storageos_requirements=False):
+    def install_kube(
+            self,
+            filename='req_ubuntu.sh',
+            kubernetes_version='1.16.3-00',
+            docker_version='18.09.7',
+            storageos_requirements=False
+    ):
         local = LOCAL
         host = self.vm_attributes.name
         template_host = FabricWrapper(host=host)
@@ -282,4 +331,37 @@ class CommonVMMixin:
             self.install_storageos_requirements()
 
     def install_storageos_requirements(self):
-        raise NotImplementedError
+        pass
+
+
+class ExecuteStagesMixin:
+    vm_attributes: VMAttributes
+    vmid: str
+    start_vm: callable
+    stop_vm: callable
+    inject_cloudinit_values: callable
+    remove_ssh_config_entry: callable
+
+    def start_stage(self):
+        print(crayons.cyan(f'Stage: Start VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
+        self.inject_cloudinit_values()
+        started = self.start_vm()
+        if started:
+            print(crayons.green(f'Start VM {self.vm_attributes.name} {self.vmid}: Success'))
+        else:
+            logging.error(crayons.red(f'VM {self.vm_attributes.name} {self.vmid} failed to start'))
+            return
+        print(crayons.cyan(f'Stage: Waiting 2 min. for VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} to initialize.'))
+        time.sleep(120)
+        print(crayons.green(f'VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} initialized.'))
+
+    def stop_stage(self):
+        print(crayons.cyan(f'Stage: Stop VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
+        stopped = self.stop_vm()
+        if stopped:
+            print(crayons.green(f'Stop VM {self.vm_attributes.name} {self.vmid}: Success'))
+        else:
+            logging.error(crayons.red(f'VM {self.vm_attributes.name} {self.vmid} failed to stop'))
+            return
+        print(crayons.cyan(f'Remove ssh config entry for {self.vm_attributes.name}'))
+        self.remove_ssh_config_entry()

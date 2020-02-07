@@ -216,6 +216,18 @@ class VMAPIClient(ProxmoxAPIClient):
         node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).template.post()
 
+    def clone_vm_from_template(self, node, source_vmid, target_vmid, name='', description='', full=False):
+        """
+        Parameter full creates a full disk clone of VM. For templates default is False: creates a linked clone.
+        """
+        node_resource = self._get_single_node_resource(node)
+        self.client.nodes(node_resource['name']).qemu(source_vmid).clone.post(
+            newid=target_vmid,
+            name=name,
+            description=description,
+            full=full
+        )
+
     def get_vm_config(self, node, vmid):
         node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).config.get()
@@ -241,20 +253,20 @@ class VMAPIClient(ProxmoxAPIClient):
             logging.error(invalid)
             return None
 
-    def attach_volume_to_vm(self, node, vmid, scsihw='virtio-scsi-pci', scsi=False, volume='virtio0', disk_size=5):
+    def attach_volume_to_vm(self, node, vmid, volume, scsihw='virtio-scsi-pci', scsi=False, disk_size=5, drive_slot='0'):
         volume_details = f'file={volume},size={disk_size}G'
         return self.update_vm_config(
             node=node,
             vmid=vmid,
             storage_operation=True,
             scsihw=scsihw,
-            scsi0=volume_details
+            **{f'scsi{drive_slot}': volume_details}
         ) if scsi else self.update_vm_config(
             node=node,
             vmid=vmid,
             storage_operation=True,
             scsihw=scsihw,
-            virtio0=volume_details
+            **{f'virtio{drive_slot}': volume_details}
         )
 
     def add_cloudinit_drive(self, node, vmid, storage_name, drive_slot=2):

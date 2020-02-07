@@ -1,5 +1,6 @@
 import logging
 import os
+import math
 from enum import Enum
 
 import crayons
@@ -255,3 +256,13 @@ def clear_server_entry(ip):
     except Exception as warning:
         logging.warning(crayons.yellow(f'{ip} not found on ~/.ssh/known_hosts'))
         logging.warning(crayons.white(warning))
+
+
+def human_readable_disk_size(size):
+   if size == 0:
+       return '0B'
+   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+   index = int(math.floor(math.log(size, 1024)))
+   power = math.pow(1024, index)
+   result = round(size/power, 2)
+   return int(result), size_name[index]

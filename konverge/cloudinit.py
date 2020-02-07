@@ -5,14 +5,14 @@ import logging
 import crayons
 
 from konverge.pve import VMAPIClient
-from konverge.mixins import CommonVMMixin
+from konverge.mixins import CommonVMMixin, ExecuteStagesMixin
 from konverge.utils import (
     VMAttributes,
     FabricWrapper
 )
 
 
-class CloudinitTemplate(CommonVMMixin):
+class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
     cls_cloud_image = ''
     full_url = ''
     filename = ''
@@ -67,7 +67,7 @@ class CloudinitTemplate(CommonVMMixin):
     def _update_description(self):
         self.vm_attributes.description = '"Generic Linux base template VM created by CloudImage."'
 
-    def generate_vmid(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix):
         raise NotImplementedError
 
     def download_cloudinit_image(self):
@@ -103,46 +103,45 @@ class CloudinitTemplate(CommonVMMixin):
         if imported.ok:
             print(crayons.green(f'Image {self.cloud_image} imported successfully.'))
 
-    def install_storageos_requirements(self):
-        raise NotImplementedError
-
     def execute(
             self,
             kubernetes_version='1.16.3-00',
             docker_version='18.09.7',
-            storageos_requirements=False
+            storageos_requirements=False,
+            destroy=False
     ):
+        if destroy:
+            self.stop_stage()
+            self.destroy_vm()
+            return self.vmid
+
         print(crayons.cyan(f'Stage: Download image: {self.cloud_image}'))
         image_filename = self.download_cloudinit_image()
+
         print(crayons.cyan(f'Stage: Create Base VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         logging.warning(crayons.yellow(self.create_vm()))
+
         print(crayons.cyan('Stage: Import image and get unused storage'))
         self.import_cloudinit_image(image_filename)
         volume = self.get_storage(unused=True)
 
         print(crayons.cyan(f'Stage: Attach volume to VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         logging.warning(crayons.yellow(self.attach_volume_to_vm(volume)))
+
         print(crayons.cyan(f'Stage: Add cloudinit drive'))
         logging.warning(crayons.yellow(self.add_cloudinit_drive()))
+
         print(crayons.cyan(f'Stage: Set boot disk'))
         logging.warning(crayons.yellow(self.set_boot_disk()))
+
         print(crayons.cyan(f'Stage: Resize disk'))
         self.resize_disk()
+
         print(crayons.cyan(f'Stage: Set VGA serial drive'))
         self.set_vga_display()
 
         if self.preinstall:
-            print(crayons.cyan(f'Stage: Start VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
-            self.inject_cloudinit_values()
-            started = self.start_vm()
-            if started:
-                print(crayons.green(f'Start VM {self.vm_attributes.name} {self.vmid}: Success'))
-            else:
-                logging.error(crayons.red(f'VM {self.vm_attributes.name} {self.vmid} failed to start'))
-                return
-            print(crayons.cyan(f'Stage: Waiting 2 min. for VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} to initialize.'))
-            time.sleep(120)
-            print(crayons.green(f'VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} initialized.'))
+            self.start_stage()
             print(crayons.cyan(f'Stage: Install kubernetes pre-requisites from file {self.filename}'))
             self.install_kube(
                 filename=self.filename,
@@ -151,15 +150,7 @@ class CloudinitTemplate(CommonVMMixin):
                 storageos_requirements=storageos_requirements
             )
             time.sleep(5)
-            print(crayons.cyan(f'Stage: Stop VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
-            stopped = self.stop_vm()
-            if stopped:
-                print(crayons.green(f'Stop VM {self.vm_attributes.name} {self.vmid}: Success'))
-            else:
-                logging.error(crayons.red(f'VM {self.vm_attributes.name} {self.vmid} failed to stop'))
-                return
-            print(crayons.cyan(f'Remove ssh config entry for {self.vm_attributes.name}'))
-            self.remove_ssh_config_entry()
+            self.stop_stage()
 
         print(crayons.cyan(f'Stage: exporting template from VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         self.export_template()
@@ -175,7 +166,7 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     def _update_description(self):
         self.vm_attributes.description = f'"Ubuntu 18.04.3 base template VM created by CloudImage."'
 
-    def generate_vmid(self, id_prefix, preinstall=True):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True):
         template_vmid = int(f'{id_prefix}100') if self.preinstall else int(f'{id_prefix}000')
         username = 'ubuntu'
         return template_vmid, username
@@ -184,13 +175,15 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
             self,
             kubernetes_version='1.16.3-00',
             docker_version='18.09.7',
-            storageos_requirements=False
+            storageos_requirements=False,
+            destroy=False
     ):
         suffix = '-0ubuntu1~18.04.4'
         super().execute(
             kubernetes_version=kubernetes_version,
             docker_version=f'{docker_version}{suffix}',
-            storageos_requirements=storageos_requirements
+            storageos_requirements=storageos_requirements,
+            destroy=destroy
         )
 
     def install_storageos_requirements(self):
@@ -216,7 +209,7 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     def _update_description(self):
         self.vm_attributes.description = f'"CentOS 7 base template VM created by CloudImage."'
 
-    def generate_vmid(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix):
         template_vmid = int(f'{id_prefix}101') if self.preinstall else int(f'{id_prefix}001')
         username = 'centos'
         return template_vmid, username
@@ -225,12 +218,14 @@ class CentosCloudInitTemplate(CloudinitTemplate):
             self,
             kubernetes_version='1.16.3-00',
             docker_version='18.09.7',
-            storageos_requirements=False
+            storageos_requirements=False,
+            destroy=False
     ):
         super().execute(
             kubernetes_version=kubernetes_version,
             docker_version=docker_version,
-            storageos_requirements=storageos_requirements
+            storageos_requirements=storageos_requirements,
+            destroy=destroy
         )
 
     def install_storageos_requirements(self):
