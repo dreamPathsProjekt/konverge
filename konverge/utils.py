@@ -9,6 +9,8 @@ from fabric2.util import get_local_user
 from invoke import Context
 
 
+LOCAL = Context(Config())
+
 class Storage(Enum):
     cephfs = 'cephfs'
     cifs = 'cifs'
@@ -88,6 +90,10 @@ class VMAttributes:
     @property
     def private_key_exists(self):
         return os.path.exists(self.private_ssh_key)
+
+    @property
+    def private_pem_ssh_key_exists(self):
+        return os.path.exists(self.private_pem_ssh_key)
 
     def read_public_key(self):
         if not self.public_key_exists:
@@ -170,9 +176,11 @@ def add_ssh_config_entry(host, user, identity, ip):
     """
     Add host configuration locally on ~/.ssh/config
     """
-    local = Context(Config())
-    config_file = f'~/.ssh/config'
+    local = LOCAL
+    home = get_local_user()
+    config_file = f'/home/{home}/.ssh/config'
     if not os.path.exists(config_file):
+        logging.warning(crayons.yellow(f'Did not find config file: {config_file}. Creating now.'))
         local.run(f'mkdir -p ~/.ssh')
     try:
         local.run(f'echo "" >> {config_file}')
@@ -180,7 +188,7 @@ def add_ssh_config_entry(host, user, identity, ip):
         local.run(f'echo "Hostname {ip}" >> {config_file}')
         local.run(f'echo "User {user}" >> {config_file}')
         local.run(f'echo "Port 22" >> {config_file}')
-        local.run(f'echo "IdentityFile {identity}.pem" >> {config_file}')
+        local.run(f'echo "IdentityFile {identity}" >> {config_file}')
         local.run(f'echo "StrictHostKeyChecking no" >> {config_file}')
         print(crayons.green(f'Host: {host} added to ~/.ssh/config'))
     except Exception as generic:
@@ -188,11 +196,15 @@ def add_ssh_config_entry(host, user, identity, ip):
 
 
 def remove_ssh_config_entry(host, ip, user='ubuntu'):
-    local = Context(Config())
+    local = LOCAL
     home = get_local_user()
-    config_file = f'{home}/.ssh/config'
+    config_file = f'/home/{home}/.ssh/config'
     local.run(f'cp {config_file} {config_file}.bak')
     found = False
+
+    if not os.path.exists(config_file):
+        logging.error(crayons.red(f'Did not find config file: {config_file}. Exit.'))
+        return
 
     with open(config_file, mode='r') as ssh_config:
         lines = ssh_config.readlines()
@@ -233,3 +245,13 @@ def remove_ssh_config_entry(host, ip, user='ubuntu'):
             print(crayons.blue('Performing rollback of ~/.ssh/config'))
             local.run(f'mv {config_file}.bak {config_file}')
             print(crayons.green('Rollback complete'))
+
+
+def clear_server_entry(ip):
+    try:
+        local = LOCAL
+        home = get_local_user()
+        local.run(f'ssh-keygen -f "/home/{home}/.ssh/known_hosts" -R "{ip}"')
+    except Exception as warning:
+        logging.warning(crayons.yellow(f'{ip} not found on ~/.ssh/known_hosts'))
+        logging.warning(crayons.white(warning))

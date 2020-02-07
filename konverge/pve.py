@@ -1,4 +1,5 @@
 import logging
+import urllib.parse
 
 import crayons
 
@@ -188,10 +189,10 @@ class VMAPIClient(ProxmoxAPIClient):
             ostype='l26',
             pool=vm_attributes.pool,
             memory=vm_attributes.memory,
-            ballon=vm_attributes.memory,
+            balloon=vm_attributes.memory,
             sockets=1,
             cores=vm_attributes.cpus,
-            storage=self.client.get_cluster_storage(type=vm_attributes.storage_type)[0].get('name'),
+            storage=self.get_cluster_storage(storage_type=vm_attributes.storage_type)[0].get('name'),
             net0=f'model=virtio,bridge=vmbr0,firewall=1'
         )
 
@@ -228,8 +229,20 @@ class VMAPIClient(ProxmoxAPIClient):
         )
         return operation(**vm_kwargs)
 
+    def enable_hotplug(self, node, vmid, hotplug='1', disable=False):
+        try:
+            return self.update_vm_config(
+                node=node,
+                vmid=vmid,
+                storage_operation=True,
+                hotplug='0' if disable else hotplug
+            )
+        except ResourceException as invalid:
+            logging.error(invalid)
+            return None
+
     def attach_volume_to_vm(self, node, vmid, scsihw='virtio-scsi-pci', scsi=False, volume='virtio0', disk_size=5):
-        volume_details = f'file="{volume}",size={disk_size}G'
+        volume_details = f'file={volume},size={disk_size}G'
         return self.update_vm_config(
             node=node,
             vmid=vmid,
@@ -249,7 +262,7 @@ class VMAPIClient(ProxmoxAPIClient):
             node=node,
             vmid=vmid,
             storage_operation=True,
-            vm_kwargs={f'ide{drive_slot}': storage_name}
+            **{f'ide{drive_slot}': storage_name}
         )
 
     def set_boot_disk(self, node, vmid, driver, boot: BootMedia = BootMedia.hard_disk):
@@ -273,7 +286,7 @@ class VMAPIClient(ProxmoxAPIClient):
             node=node,
             vmid=vmid,
             storage_operation=False,
-            sshkeys=ssh_key_content,
+            sshkeys=urllib.parse.quote(ssh_key_content, safe=''),
             ipconfig0=f'ip={vm_ip}/{netmask},gw={gateway}'
         )
 

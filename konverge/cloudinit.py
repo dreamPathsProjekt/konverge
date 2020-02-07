@@ -15,6 +15,7 @@ from konverge.utils import (
 class CloudinitTemplate(CommonVMMixin):
     cls_cloud_image = ''
     full_url = ''
+    filename = ''
 
     def __init__(
             self,
@@ -102,69 +103,135 @@ class CloudinitTemplate(CommonVMMixin):
         if imported.ok:
             print(crayons.green(f'Image {self.cloud_image} imported successfully.'))
 
-    def install_kube(self):
+    def install_storageos_requirements(self):
         raise NotImplementedError
 
-    def execute(self):
+    def execute(
+            self,
+            kubernetes_version='1.16.3-00',
+            docker_version='18.09.7',
+            storageos_requirements=False
+    ):
+        print(crayons.cyan(f'Stage: Download image: {self.cloud_image}'))
         image_filename = self.download_cloudinit_image()
-        print()
+        print(crayons.cyan(f'Stage: Create Base VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         logging.warning(crayons.yellow(self.create_vm()))
-
+        print(crayons.cyan('Stage: Import image and get unused storage'))
         self.import_cloudinit_image(image_filename)
         volume = self.get_storage(unused=True)
 
-        print()
+        print(crayons.cyan(f'Stage: Attach volume to VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         logging.warning(crayons.yellow(self.attach_volume_to_vm(volume)))
-        print()
+        print(crayons.cyan(f'Stage: Add cloudinit drive'))
         logging.warning(crayons.yellow(self.add_cloudinit_drive()))
-        print()
+        print(crayons.cyan(f'Stage: Set boot disk'))
         logging.warning(crayons.yellow(self.set_boot_disk()))
-        print()
+        print(crayons.cyan(f'Stage: Resize disk'))
         self.resize_disk()
-        print()
+        print(crayons.cyan(f'Stage: Set VGA serial drive'))
         self.set_vga_display()
 
         if self.preinstall:
+            print(crayons.cyan(f'Stage: Start VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
             self.inject_cloudinit_values()
-            self.start_vm()
-            time.sleep(15)
-            self.install_kube()
-            self.stop_vm()
+            started = self.start_vm()
+            if started:
+                print(crayons.green(f'Start VM {self.vm_attributes.name} {self.vmid}: Success'))
+            else:
+                logging.error(crayons.red(f'VM {self.vm_attributes.name} {self.vmid} failed to start'))
+                return
+            print(crayons.cyan(f'Stage: Waiting 2 min. for VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} to initialize.'))
+            time.sleep(120)
+            print(crayons.green(f'VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} initialized.'))
+            print(crayons.cyan(f'Stage: Install kubernetes pre-requisites from file {self.filename}'))
+            self.install_kube(
+                filename=self.filename,
+                kubernetes_version=kubernetes_version,
+                docker_version=docker_version,
+                storageos_requirements=storageos_requirements
+            )
+            time.sleep(5)
+            print(crayons.cyan(f'Stage: Stop VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
+            stopped = self.stop_vm()
+            if stopped:
+                print(crayons.green(f'Stop VM {self.vm_attributes.name} {self.vmid}: Success'))
+            else:
+                logging.error(crayons.red(f'VM {self.vm_attributes.name} {self.vmid} failed to stop'))
+                return
+            print(crayons.cyan(f'Remove ssh config entry for {self.vm_attributes.name}'))
+            self.remove_ssh_config_entry()
 
-        print()
+        print(crayons.cyan(f'Stage: exporting template from VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         self.export_template()
+        print(crayons.green(f'Template exported: {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         return self.vmid
 
 
 class UbuntuCloudInitTemplate(CloudinitTemplate):
     cls_cloud_image = 'bionic-server-cloudimg-amd64.img'
     full_url = f'https://cloud-images.ubuntu.com/bionic/current/{cls_cloud_image}'
+    filename = 'req_ubuntu.sh'
 
     def _update_description(self):
         self.vm_attributes.description = f'"Ubuntu 18.04.3 base template VM created by CloudImage."'
 
     def generate_vmid(self, id_prefix, preinstall=True):
-        template_vmid = int(f'{id_prefix}000') if self.preinstall else int(f'{id_prefix}100')
+        template_vmid = int(f'{id_prefix}100') if self.preinstall else int(f'{id_prefix}000')
         username = 'ubuntu'
         return template_vmid, username
 
-    def install_kube(self):
-        filename = 'bootstrap/req_ubuntu.sh'
+    def execute(
+            self,
+            kubernetes_version='1.16.3-00',
+            docker_version='18.09.7',
+            storageos_requirements=False
+    ):
+        suffix = '-0ubuntu1~18.04.4'
+        super().execute(
+            kubernetes_version=kubernetes_version,
+            docker_version=f'{docker_version}{suffix}',
+            storageos_requirements=storageos_requirements
+        )
+
+    def install_storageos_requirements(self):
+        host = self.vm_attributes.name
+        template_host_sudo = FabricWrapper(host=host, sudo=True)
+        print(crayons.cyan('Installing Storage OS pre-requisites on nodes'))
+        if 'master' in host:
+            logging.warning(crayons.yellow(f'Client {host} is tagged master node. Skipping.'))
+            return
+        install_prereqs = template_host_sudo.execute('apt-get -y update && apt-get -y install linux-modules-extra-$(uname -r)')
+        if install_prereqs.ok:
+            print(crayons.green('Pre-requisistes for Storage OS Operator installed successfully'))
+        else:
+            logging.error(crayons.red('Pre-requisistes for Storage OS Operator failed to install.'))
+            return
 
 
 class CentosCloudInitTemplate(CloudinitTemplate):
     cls_cloud_image = 'CentOS-7-x86_64-GenericCloud.qcow2'
     full_url = f'https://cloud.centos.org/centos/7/images/{cls_cloud_image}'
+    filename = 'req_centos.sh'
 
     def _update_description(self):
         self.vm_attributes.description = f'"CentOS 7 base template VM created by CloudImage."'
 
     def generate_vmid(self, id_prefix):
-        template_vmid = int(f'{id_prefix}001') if self.preinstall else int(f'{id_prefix}101')
+        template_vmid = int(f'{id_prefix}101') if self.preinstall else int(f'{id_prefix}001')
         username = 'centos'
         return template_vmid, username
 
-    def install_kube(self):
-        filename = 'bootstrap/req_redhat.sh'
+    def execute(
+            self,
+            kubernetes_version='1.16.3-00',
+            docker_version='18.09.7',
+            storageos_requirements=False
+    ):
+        super().execute(
+            kubernetes_version=kubernetes_version,
+            docker_version=docker_version,
+            storageos_requirements=storageos_requirements
+        )
 
-
+    def install_storageos_requirements(self):
+        logging.warning('Install StorageOS requirements not implemented for CentOS')

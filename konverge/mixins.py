@@ -9,7 +9,9 @@ from konverge.utils import (
     BootMedia,
     get_id_prefix,
     add_ssh_config_entry,
-    remove_ssh_config_entry
+    remove_ssh_config_entry,
+    clear_server_entry,
+    LOCAL
 )
 from konverge import settings
 
@@ -109,20 +111,24 @@ class CommonVMMixin:
             vm_attributes=self.vm_attributes,
             vmid=self.vmid
         )
+        print(created)
         if not created:
-            # TODO: get back appropriate response and log
-            pass
+            logging.error(crayons.red(f'Failed to create VM: {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         self.add_ssh_config_entry()
+        print(crayons.green(f'Create VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}: Success'))
+        return created
 
     def destroy_vm(self):
         deleted = self.client.destroy_vm(
             node=self.vm_attributes.node,
             vmid=self.vmid
         )
+        print(deleted)
         if not deleted:
-            # TODO: get back appropriate response and log
-            pass
+           logging.error(crayons.red(f'Failed to destroy VM: {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         self.remove_ssh_config_entry()
+        print(crayons.green(f'Destroy VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}: Success'))
+        return deleted
 
     def attach_volume_to_vm(self, volume):
         return self.client.attach_volume_to_vm(
@@ -137,7 +143,7 @@ class CommonVMMixin:
         return self.client.add_cloudinit_drive(
             node=self.vm_attributes.node,
             vmid=self.vmid,
-            storage_name=self.storage,
+            storage_name=f'{self.storage}:cloudinit',
             drive_slot=drive_slot
         )
 
@@ -191,10 +197,10 @@ class CommonVMMixin:
         if not self.vm_attributes.public_key_exists:
             logging.error(crayons.red(f'Public key: {self.vm_attributes.public_ssh_key} does not exist. Abort'))
             return
-        if not self.vm_attributes.private_key_exists:
+        if not self.vm_attributes.private_pem_ssh_key_exists:
             logging.warning(
                 crayons.yellow(
-                    f'Private key {self.vm_attributes.private_pem_ssh_key} does not exist in the location of {self.vm_attributes.public_ssh_key}.'
+                    f'Private key {self.vm_attributes.private_pem_ssh_key} does not exist in the same location as: {self.vm_attributes.public_ssh_key}.'
                 )
             )
         self.create_allowed_ip_if_not_exists()
@@ -216,14 +222,64 @@ class CommonVMMixin:
         add_ssh_config_entry(
             host=self.vm_attributes.name,
             user=self.username,
-            identity=self.vm_attributes.public_ssh_key,
+            identity=self.vm_attributes.private_pem_ssh_key,
             ip=self.allowed_ip
         )
 
     def remove_ssh_config_entry(self):
-        self.create_allowed_ip_if_not_exists()
+        ip_address, netmask, gateway = self.client.get_ip_config_from_vm_cloudinit(
+            node=self.vm_attributes.node,
+            vmid=self.vmid
+        )
         remove_ssh_config_entry(
             host=self.vm_attributes.name,
             user=self.username,
-            ip=self.allowed_ip
+            ip=ip_address
         )
+        clear_server_entry(ip_address)
+
+    def install_kube(self, filename='req_ubuntu.sh', kubernetes_version='1.16.3-00', docker_version='18.09.7', storageos_requirements=False):
+        local = LOCAL
+        host = self.vm_attributes.name
+        template_host = FabricWrapper(host=host)
+        template_host_sudo = FabricWrapper(host=host, sudo=True)
+
+        file = filename
+        dashboard_file = 'dashboard-adminuser.yaml'
+        daemon_file = 'daemon.json'
+
+        local_path = os.path.join(settings.BASE_PATH, f'bootstrap/{file}')
+        local_dashboard_path = os.path.join(settings.BASE_PATH, f'bootstrap/{dashboard_file}')
+        local_daemon_path = os.path.join(settings.BASE_PATH, f'bootstrap/{daemon_file}')
+        remote_path = f'/opt/kube/bootstrap'
+
+        print(crayons.white(f'Current workdir: {settings.BASE_PATH}'))
+
+        print(crayons.cyan(f'Copying files {file}, {dashboard_file}, {daemon_file}'))
+        template_host_sudo.execute(f'mkdir -p {remote_path}')
+        template_host_sudo.execute(f'chown -R $USER:$USER {remote_path}')
+        sent1 = local.run(f'scp {local_path} {host}:{remote_path}')
+        sent2 = local.run(f'scp {local_dashboard_path} {host}:{remote_path}')
+        sent3 = local.run(f'scp {local_daemon_path} {host}:{remote_path}')
+        if not sent1.ok or not sent2.ok or not sent3.ok:
+            logging.error(crayons.red(f'Failed to sent files {file}, {dashboard_file}, {daemon_file}'))
+            return
+
+        print(crayons.blue(f'Installing kubectl, kubeadm, kubelet & docker CR on {host}.'))
+        print(crayons.cyan(f'Kubernetes Version: {kubernetes_version}. Docker Version: {docker_version}'))
+        template_host.execute(f'chmod +x {remote_path}/{file}')
+        installed = template_host.execute(
+            f'DAEMON_JSON_LOCATION={remote_path} KUBE_VERSION={kubernetes_version} DOCKER_VERSION={docker_version} {remote_path}/{file}',
+            warn=True
+        )
+        if installed.ok:
+            print(crayons.green(f'Installed pre-requisites on {host}'))
+        else:
+            logging.error(crayons.red(f'Pre-requisistes on {host} failed to install.'))
+            return
+
+        if storageos_requirements:
+            self.install_storageos_requirements()
+
+    def install_storageos_requirements(self):
+        raise NotImplementedError

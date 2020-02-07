@@ -1,8 +1,11 @@
 import os
+import inspect
 
 from konverge.pve import ProxmoxAPIClient
 from konverge.pvecluster import ProxmoxClusterConfigFile, ClusterConfig
 # from konverge.utils import FabricWrapper
+
+BASE_PATH = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 
 cluster_config = ProxmoxClusterConfigFile()
 cluster_config_client = ClusterConfig(cluster_config)
