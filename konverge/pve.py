@@ -1,8 +1,15 @@
+import logging
+import urllib.parse
+
+import crayons
+
 from proxmoxer import ProxmoxAPI
+from proxmoxer.core import ResourceException
 
 from konverge.utils import (
     Storage,
-    VMAttributes
+    VMAttributes,
+    BootMedia
 )
 
 
@@ -15,6 +22,14 @@ class ProxmoxAPIClient:
             backend=backend,
             verify_ssl=verify_ssl
         )
+
+    @staticmethod
+    def api_client_factory(instance_type='vm'):
+        types = {
+            'vm': VMAPIClient,
+            'lxc': LXCAPIClient
+        }
+        return types.get(instance_type)
 
     def get_resource_pools(self, name=None):
         if name:
@@ -47,9 +62,12 @@ class ProxmoxAPIClient:
             for node in nodes
         ]
 
+    def _get_single_node_resource(self, node):
+        return self.get_cluster_nodes(node)[0]
+
     def get_cluster_vms(self, node=None, verbose=False):
         if node:
-            node_resource = self.get_cluster_nodes(node)[0]
+            node_resource = self._get_single_node_resource(node)
             vms = [vm for vm in self.client.nodes(node_resource['name']).qemu.get()]
         else:
             vms = self.client.cluster.resources.get(type='vm')
@@ -67,7 +85,7 @@ class ProxmoxAPIClient:
 
     def get_cluster_lxc(self, node=None, verbose=False):
         if node:
-            node_resource = self.get_cluster_nodes(node)[0]
+            node_resource = self._get_single_node_resource(node)
             lxcs = [lxc for lxc in self.client.nodes(node_resource['name']).lxc.get()]
         else:
             lxcs = self.client.cluster.resources.get(type='lxc')
@@ -157,8 +175,10 @@ class ProxmoxAPIClient:
             for item in items
         ]
 
+
+class VMAPIClient(ProxmoxAPIClient):
     def create_vm(self, vm_attributes: VMAttributes, vmid):
-        node_resource = self.get_cluster_nodes(vm_attributes.node)[0]
+        node_resource = self._get_single_node_resource(vm_attributes.node)
         return self.client.nodes(node_resource['name']).qemu.create(
             vmid=vmid,
             acpi=1,
@@ -169,13 +189,141 @@ class ProxmoxAPIClient:
             ostype='l26',
             pool=vm_attributes.pool,
             memory=vm_attributes.memory,
-            ballon=vm_attributes.memory,
+            balloon=vm_attributes.memory,
             sockets=1,
             cores=vm_attributes.cpus,
-            storage=self.client.get_cluster_storage(type=vm_attributes.storage)[0].get('name'),
+            storage=self.get_cluster_storage(storage_type=vm_attributes.storage_type)[0].get('name'),
             net0=f'model=virtio,bridge=vmbr0,firewall=1'
         )
 
+    def start_vm(self, node, vmid):
+        node_resource = self._get_single_node_resource(node)
+        return self.client.nodes(node_resource['name']).qemu(vmid).status.start.post()
+
+    def shutdown_vm(self, node, vmid, timeout=20):
+        node_resource = self._get_single_node_resource(node)
+        return self.client.nodes(node_resource['name']).qemu(vmid).status.shutdown.post(timeout=timeout)
+
+    def stop_vm(self, node, vmid, timeout=20):
+        node_resource = self._get_single_node_resource(node)
+        return self.client.nodes(node_resource['name']).qemu(vmid).status.stop.post(timeout=timeout)
+
+    def destroy_vm(self, node, vmid):
+        node_resource = self._get_single_node_resource(node)
+        return self.client.nodes(node_resource['name']).qemu(vmid).delete()
+
+    def export_vm_template(self, node, vmid):
+        node_resource = self._get_single_node_resource(node)
+        self.client.nodes(node_resource['name']).qemu(vmid).template.post()
+
     def get_vm_config(self, node, vmid):
-        node_resource = self.get_cluster_nodes(node)[0]
+        node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).config.get()
+
+    def update_vm_config(self, node, vmid, storage_operation=False, **vm_kwargs):
+        node_resource = self._get_single_node_resource(node)
+        operation = (
+            self.client.nodes(node_resource['name']).qemu(vmid).config.post
+        ) if storage_operation else (
+            self.client.nodes(node_resource['name']).qemu(vmid).config.put
+        )
+        return operation(**vm_kwargs)
+
+    def enable_hotplug(self, node, vmid, hotplug='1', disable=False):
+        try:
+            return self.update_vm_config(
+                node=node,
+                vmid=vmid,
+                storage_operation=True,
+                hotplug='0' if disable else hotplug
+            )
+        except ResourceException as invalid:
+            logging.error(invalid)
+            return None
+
+    def attach_volume_to_vm(self, node, vmid, scsihw='virtio-scsi-pci', scsi=False, volume='virtio0', disk_size=5):
+        volume_details = f'file={volume},size={disk_size}G'
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            scsihw=scsihw,
+            scsi0=volume_details
+        ) if scsi else self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            scsihw=scsihw,
+            virtio0=volume_details
+        )
+
+    def add_cloudinit_drive(self, node, vmid, storage_name, drive_slot=2):
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            **{f'ide{drive_slot}': storage_name}
+        )
+
+    def set_boot_disk(self, node, vmid, driver, boot: BootMedia = BootMedia.hard_disk):
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            boot=boot.value,
+            bootdisk=driver
+        )
+
+    def resize_disk(self, node, vmid, driver='virtio0', disk_size=5):
+        node_resource = self._get_single_node_resource(node)
+        self.client.nodes(node_resource['name']).qemu(vmid).resize.put(
+            disk=driver,
+            size=f'{disk_size}G'
+        )
+
+    def inject_vm_cloudinit(self, node, vmid, ssh_key_content, vm_ip, gateway, netmask='24'):
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=False,
+            sshkeys=urllib.parse.quote(ssh_key_content, safe=''),
+            ipconfig0=f'ip={vm_ip}/{netmask},gw={gateway}'
+        )
+
+    def get_ip_config_from_vm_cloudinit(self, node, vmid, ipconfig_slot=0):
+        config = self.get_vm_config(node, vmid)
+        ip_config = config.get(f'ipconfig{ipconfig_slot}')
+        if not ip_config:
+            return None, None, None
+
+        ip, gw = ip_config.split(',')
+        ip_address, netmask = ip.split('/')
+        ip_address = ip_address.split('=')[-1]
+        gateway = gw.split('=')[-1]
+        return ip_address, netmask, gateway
+
+    def agent_get_interfaces(self, node, vmid, verbose=False, filter_lo=True):
+        node_resource = self._get_single_node_resource(node)
+        try:
+            response = self.client.nodes(node_resource['name']).qemu(vmid).agent.get('network-get-interfaces')
+        except ResourceException as agent_not_running:
+            logging.error(crayons.red(f'Qemu guest agent is not running in {vmid}'))
+            logging.error(crayons.red(agent_not_running))
+            return None
+        if verbose:
+            return response
+
+        stripped = [
+            {
+                'name': result.get('name'),
+                'ip_addresses': [address.get('ip-address') for address in result.get('ip-addresses') if
+                                 address.get('ip-address-type') == 'ipv4']
+            }
+            for result in response.get('result')
+        ]
+        filtered = list(filter(lambda iface: iface.get('name') != 'lo', stripped))
+        return filtered if filter_lo else stripped
+
+
+class LXCAPIClient(ProxmoxAPIClient):
+    pass

@@ -16,6 +16,9 @@ fi
 curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
 sudo apt-add-repository -y "deb http://apt.kubernetes.io/ kubernetes-xenial main"
 
+# Install qemu-guest-agent
+sudo apt-get install -y qemu-guest-agent
+
 # Install required packages
 sudo apt-get install -y docker.io=${DOCKER_VERSION}
 # Mark packages on hold - upgrade k8s through k8s & not apt

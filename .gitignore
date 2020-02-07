@@ -74,3 +74,7 @@ env/
 topology.json
 .vscode/
 .dockerconfigjson
+
+# Proxmox cluster config
+.cluster.yml
+.cluster.yaml
