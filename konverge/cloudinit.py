@@ -45,7 +45,7 @@ class CloudinitTemplate(CommonVMMixin):
             self.cloudinit_storage_details,
             self.cloudinit_location
         ) = self._get_storage_details(image=True)
-        self.allowed_ip = self.generate_allowed_ip()
+        self.allowed_ip = ''
 
     @property
     def cloud_image(self):

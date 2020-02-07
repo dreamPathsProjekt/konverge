@@ -197,9 +197,7 @@ class CommonVMMixin:
                     f'Private key {self.vm_attributes.private_pem_ssh_key} does not exist in the location of {self.vm_attributes.public_ssh_key}.'
                 )
             )
-        if not self.allowed_ip:
-            logging.error(crayons.red(f'Allowed ip does not exist.'))
-            return
+        self.create_allowed_ip_if_not_exists()
         self.client.inject_vm_cloudinit(
             node=self.vm_attributes.node,
             vmid=self.vmid,
@@ -208,7 +206,13 @@ class CommonVMMixin:
             gateway=self.vm_attributes.gateway if self.vm_attributes.gateway else settings.cluster_config_client.gateway
         )
 
+    def create_allowed_ip_if_not_exists(self):
+        if not self.allowed_ip:
+            logging.warning(crayons.yellow(f'Allowed ip does not exist.'))
+            self.allowed_ip = self.generate_allowed_ip()
+
     def add_ssh_config_entry(self):
+        self.create_allowed_ip_if_not_exists()
         add_ssh_config_entry(
             host=self.vm_attributes.name,
             user=self.username,
@@ -217,6 +221,7 @@ class CommonVMMixin:
         )
 
     def remove_ssh_config_entry(self):
+        self.create_allowed_ip_if_not_exists()
         remove_ssh_config_entry(
             host=self.vm_attributes.name,
             user=self.username,

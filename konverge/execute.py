@@ -13,7 +13,7 @@ def execute():
     proxmox_node = FabricWrapper(host='vhost1.proxmox')
     template_attributes = VMAttributes(
         name='test-template',
-        node='vhost',
+        node='vhost2',
         pool='utils',
         storage_type=Storage.nfs,
         image_storage_type=Storage.nfs,
