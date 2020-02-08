@@ -37,7 +37,7 @@ class ProxmoxAPIClient:
         return [pool.get('poolid') for pool in self.client.pools.get()]
 
     def get_or_create_pool(self, name):
-        if name in self.get_resource_pools():
+        if not name or name in self.get_resource_pools():
             return name
         self.client.pools.create(poolid=name)
         return self.get_resource_pools(name)

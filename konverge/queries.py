@@ -19,7 +19,6 @@ def get_cluster_vms(node=None, vmid=None, template=False):
     match_node = lambda vm: vm.get('node') == node
     match_vmid = lambda vm: vm.get('vmid') == int(vmid)
 
-    # TODO: Fix pool uknown initialization.
     predicate = lambda vm: True
     if template:
         predicate = lambda vm: is_template(vm) and match_node(vm) if node else True and match_vmid(vm) if vmid else True
