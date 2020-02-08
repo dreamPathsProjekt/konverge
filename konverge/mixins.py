@@ -236,7 +236,17 @@ class CommonVMMixin:
             vmid=self.vmid
         )
 
-    def inject_cloudinit_values(self):
+    def inject_cloudinit_values(self, invalidate=False):
+        if invalidate:
+            self.client.inject_vm_cloudinit(
+                node=self.vm_attributes.node,
+                vmid=self.vmid,
+                ssh_key_content=None,
+                vm_ip=None,
+                gateway=None
+            )
+            return
+
         if not self.vm_attributes.public_key_exists:
             logging.error(crayons.red(f'Public key: {self.vm_attributes.public_ssh_key} does not exist. Abort'))
             return
@@ -247,6 +257,7 @@ class CommonVMMixin:
                 )
             )
         self.create_allowed_ip_if_not_exists()
+
         self.client.inject_vm_cloudinit(
             node=self.vm_attributes.node,
             vmid=self.vmid,
@@ -355,7 +366,7 @@ class ExecuteStagesMixin:
         time.sleep(120)
         print(crayons.green(f'VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} initialized.'))
 
-    def stop_stage(self):
+    def stop_stage(self, cloudinit=False):
         print(crayons.cyan(f'Stage: Stop VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         stopped = self.stop_vm()
         if stopped:
@@ -365,3 +376,5 @@ class ExecuteStagesMixin:
             return
         print(crayons.cyan(f'Remove ssh config entry for {self.vm_attributes.name}'))
         self.remove_ssh_config_entry()
+        if cloudinit:
+            self.inject_cloudinit_values(invalidate=True)

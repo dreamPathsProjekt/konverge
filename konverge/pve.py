@@ -295,12 +295,13 @@ class VMAPIClient(ProxmoxAPIClient):
         )
 
     def inject_vm_cloudinit(self, node, vmid, ssh_key_content, vm_ip, gateway, netmask='24'):
+        # TODO: Research sshkeys deletion: command run: update VM 3100: -ipconfig0
         return self.update_vm_config(
             node=node,
             vmid=vmid,
             storage_operation=False,
-            sshkeys=urllib.parse.quote(ssh_key_content, safe=''),
-            ipconfig0=f'ip={vm_ip}/{netmask},gw={gateway}'
+            sshkeys=urllib.parse.quote(ssh_key_content, safe='') if ssh_key_content else '',
+            ipconfig0=f'ip={vm_ip}/{netmask},gw={gateway}' if vm_ip and gateway else ''
         )
 
     def get_ip_config_from_vm_cloudinit(self, node, vmid, ipconfig_slot=0):

@@ -25,9 +25,9 @@ def execute():
 
     # Tested add and remove ssh config entries with local fabric object.
 
-    for instance in get_cluster_vms(node='vhost2'):
-        print(vars(instance.get('instance').vm_attributes))
-        print(instance.get('ip_address'))
+    # for instance in get_cluster_vms(node='vhost2'):
+    #     print(vars(instance.get('instance').vm_attributes))
+    #     print(instance.get('ip_address'))
     # Create clones
     # print(ubuntu_template.client.get_cluster_vms(node='vhost3'))
     # print(ubuntu_template.get_unallocated_disk_slots())
@@ -37,3 +37,5 @@ def execute():
     #     proxmox_node=proxmox_node,
     #     template=ubuntu_template
     # )
+
+    ubuntu_template.inject_cloudinit_values(invalidate=True)
