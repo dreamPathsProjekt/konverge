@@ -11,19 +11,29 @@ def get_storage_type_from_volume(config, driver='virtio0'):
             return Storage.return_value(storage.get('type'))
 
 
-# TODO: Split method for optimized retrieval of single vmids, nodes.
 def get_cluster_vms(node=None, vmid=None, template=False):
     vm_instances = []
     vms = [vm for vm in vm_client.get_cluster_vms(verbose=True)]
 
-    # By series of priority: vmid > node > template
     predicate = lambda: True
     if template:
-        predicate = lambda vm: vm.get('template') == 1
+        predicate = lambda vm: vm.get('template') == 1 and (
+                vm.get('node') == node
+        ) if node else True and (
+                vm.get('vmid') == int(vmid)
+        ) if vmid else True
     if node:
-        predicate = lambda vm: vm.get('node') == node
+        predicate = lambda vm: vm.get('node') == node and (
+                vm.get('template') == 1
+        ) if template else True and (
+                vm.get('vmid') == int(vmid)
+        ) if vmid else True
     if vmid:
-        predicate = lambda vm: vm.get('vmid') == int(vmid)
+        predicate = lambda vm: vm.get('vmid') == int(vmid) and (
+                vm.get('template') == 1
+        ) if template else True and (
+                vm.get('node') == node
+        ) if node else True
     filtered = list(filter(predicate, vms))
 
     if not filtered:

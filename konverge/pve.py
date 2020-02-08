@@ -307,7 +307,8 @@ class VMAPIClient(ProxmoxAPIClient):
     def get_ip_config_from_vm_cloudinit(self, node, vmid, ipconfig_slot=0):
         config = self.get_vm_config(node, vmid)
         ip_config = config.get(f'ipconfig{ipconfig_slot}')
-        if not ip_config:
+
+        if not ip_config or not ip_config.strip():
             return None, None, None
 
         ip, gw = ip_config.split(',')
