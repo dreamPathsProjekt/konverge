@@ -25,7 +25,7 @@ def execute():
 
     # Tested add and remove ssh config entries with local fabric object.
 
-    for instance in get_cluster_vms(node='vhost3', template=True, vmid='3000'):
+    for instance in get_cluster_vms(node='vhost3', template=True):
         print(vars(instance.get('instance')))
         print(instance.get('ip_address'))
     # Create clones

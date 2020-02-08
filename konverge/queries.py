@@ -15,25 +15,17 @@ def get_cluster_vms(node=None, vmid=None, template=False):
     vm_instances = []
     vms = [vm for vm in vm_client.get_cluster_vms(verbose=True)]
 
+    is_template = lambda vm: vm.get('template') == 1
+    match_node = lambda vm: vm.get('node') == node
+    match_vmid = lambda vm: vm.get('vmid') == int(vmid)
+
     predicate = lambda: True
     if template:
-        predicate = lambda vm: vm.get('template') == 1 and (
-                vm.get('node') == node
-        ) if node else True and (
-                vm.get('vmid') == int(vmid)
-        ) if vmid else True
+        predicate = lambda vm: is_template(vm) and match_node(vm) if node else True and match_vmid(vm) if vmid else True
     if node:
-        predicate = lambda vm: vm.get('node') == node and (
-                vm.get('template') == 1
-        ) if template else True and (
-                vm.get('vmid') == int(vmid)
-        ) if vmid else True
+        predicate = lambda vm: match_node(vm) and is_template(vm) if template else True and match_vmid(vm) if vmid else True
     if vmid:
-        predicate = lambda vm: vm.get('vmid') == int(vmid) and (
-                vm.get('template') == 1
-        ) if template else True and (
-                vm.get('node') == node
-        ) if node else True
+        predicate = lambda vm: match_vmid(vm) and is_template(vm) if template else True and match_node(vm) if node else True
     filtered = list(filter(predicate, vms))
 
     if not filtered:
