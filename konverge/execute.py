@@ -24,11 +24,12 @@ def execute():
     # ubuntu_template.execute(destroy=True)
     # Tested add and remove ssh config entries with local fabric object.
 
-    query = VMQuery(client=vm_client, name='test-cluster-0')
-    for instance in query.execute(node='vhost3'):
+    query = VMQuery(client=vm_client, name='po')
+    for instance in query.execute(node='vhost2'):
         print(vars(instance))
-        print(vars(instance.vm_attributes))
-        print(instance.execute(destroy=True))
+        # print(vars(instance.vm_attributes))
+        # print(instance.execute(destroy=True))
+        # print(instance.backup_export(storage=Storage.nfs))
 
     # Create clones
     # clone_attributes = VMAttributes(

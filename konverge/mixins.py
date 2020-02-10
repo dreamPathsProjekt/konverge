@@ -7,6 +7,7 @@ from konverge.pve import VMAPIClient
 from konverge.utils import (
     VMAttributes,
     FabricWrapper,
+    Storage,
     BootMedia,
     get_id_prefix,
     add_ssh_config_entry,
@@ -44,6 +45,13 @@ class CommonVMMixin:
         storage = storage_details.get('name')
         return storage, storage_details, location
 
+    @property
+    def running(self):
+        vms = self.client.get_cluster_vms(node=self.vm_attributes.node)
+        if not vms:
+            return False
+        return list(filter(lambda vm: int(self.vmid) == int(vm.get('vmid')), vms))[0].get('status') == 'running'
+
     def generate_vmid_and_username(self, id_prefix):
         raise NotImplementedError
 
@@ -62,6 +70,14 @@ class CommonVMMixin:
     def get_storage(self, unused=False):
         driver = self.unused_driver if unused else self.driver
         return self.get_storage_from_config(driver)
+
+    def get_storage_from_cluster_type(self, storage: Storage = None):
+        storages = self.client.get_cluster_storage(verbose=True)
+        for storage_result in storages:
+            if storage and storage_result.get('type') == storage.value:
+                return storage_result.get('storage')
+            elif storage_result.get('type') == self.vm_attributes.storage_type.value:
+                return storage_result.get('storage')
 
     def generate_allowed_ip(self):
         network = settings.cluster_config_client.get_network_base()
@@ -219,12 +235,18 @@ class CommonVMMixin:
         )
 
     def start_vm(self):
+        if self.running:
+            print(crayons.green(f'VM {self.vmid} is already running'))
+            return self.vmid
         return self.client.start_vm(
             node=self.vm_attributes.node,
             vmid=self.vmid
         )
 
     def stop_vm(self):
+        if not self.running:
+            print(crayons.green(f'VM {self.vmid} is already stopped'))
+            return self.vmid
         return self.client.stop_vm(
             node=self.vm_attributes.node,
             vmid=self.vmid

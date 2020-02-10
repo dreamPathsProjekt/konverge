@@ -9,7 +9,8 @@ from proxmoxer.core import ResourceException
 from konverge.utils import (
     Storage,
     VMAttributes,
-    BootMedia
+    BootMedia,
+    BackupMode
 )
 
 
@@ -226,6 +227,42 @@ class VMAPIClient(ProxmoxAPIClient):
             newid=target_vmid,
             name=name,
             description=description
+        )
+
+    def backup_vm(
+            self,
+            node,
+            storage,
+            vmid=None,
+            backup_mode: BackupMode = BackupMode.stop,
+            remove=True,
+            all_vms=False
+    ):
+        """
+        :param node:
+        :param vmid:
+        :param storage:
+        :param backup_mode:
+        :param remove: Remove old backup files if there are more than 'maxfiles' backup files.
+        :param all_vms: Backup all guests on this node. Overrides vmid.
+        :return:
+        """
+        node_resource = self._get_single_node_resource(node)
+        if not vmid and not all_vms:
+            logging.error(crayons.red(f'Vmid missing and parameter "all" not specified.'))
+            return None
+        if all_vms:
+            return self.client.nodes(node_resource['name']).vzdump.create(
+                all='1',
+                mode=backup_mode.value,
+                storage=storage,
+                remove= '1' if remove else '0'
+            )
+        return self.client.nodes(node_resource['name']).vzdump.create(
+            vmid=vmid,
+            mode=backup_mode.value,
+            storage=storage,
+            remove= '1' if remove else '0'
         )
 
     def get_vm_config(self, node, vmid, current=True):

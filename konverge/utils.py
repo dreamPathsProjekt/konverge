@@ -46,6 +46,12 @@ class BootMedia(Enum):
     network = 'n'
 
 
+class BackupMode(Enum):
+    stop = 'stop'
+    snapshot = 'snapshot'
+    suspend = 'suspend'
+
+
 class VMAttributes:
     def __init__(
             self,

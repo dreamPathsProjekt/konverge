@@ -5,7 +5,9 @@ from konverge.pve import VMAPIClient
 from konverge.mixins import CommonVMMixin, ExecuteStagesMixin
 from konverge.utils import (
     VMAttributes,
-    FabricWrapper
+    FabricWrapper,
+    Storage,
+    BackupMode
 )
 from konverge.cloudinit import CloudinitTemplate
 
@@ -105,6 +107,26 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             self.vm_attributes.disk_size = self.template.vm_attributes.disk_size
         if self.vm_attributes.disk_size != self.template.vm_attributes.disk_size:
             self.resize_disk()
+
+    def backup_export(self, storage: Storage = None, backup_mode: BackupMode = BackupMode.stop):
+        if backup_mode == BackupMode.stop:
+            print(crayons.blue(f'Stop VM {self.vmid}'))
+            self.stop_vm()
+        storage_name = self.get_storage_from_cluster_type(storage) if storage else self.storage
+
+        if storage == Storage.zfspool or (not storage and self.vm_attributes.storage_type == Storage.zfspool):
+            logging.error(crayons.red(f'Cannot use storage type: {storage} for backup.'))
+            return None
+
+        started = self.client.backup_vm(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            backup_mode=backup_mode,
+            storage=storage_name
+        )
+        if started:
+            logging.warning(crayons.yellow('Backup job issued. See proxmox dashboard for task details & completion.'))
+        return started
 
     def execute(self, start=False, destroy=False):
         if destroy:
