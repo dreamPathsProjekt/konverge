@@ -1,5 +1,6 @@
 import logging
 import os
+import math
 from enum import Enum
 
 import crayons
@@ -31,6 +32,11 @@ class Storage(Enum):
     @classmethod
     def has_value(cls, value):
         return value in cls._value2member_map_
+
+    @classmethod
+    def return_value(cls, value):
+        if cls.has_value(value):
+            return getattr(cls, value)
 
 
 class BootMedia(Enum):
@@ -70,6 +76,14 @@ class VMAttributes:
         self.image_storage_type = image_storage_type
         self.ssh_keyname = ssh_keyname
         self.gateway = gateway
+
+    @property
+    def description_os_type(self):
+        if self.description and 'Ubuntu' in  self.description:
+            return 'ubuntu'
+        elif self.description and 'CentOS' in self.description:
+            return 'centos'
+        return self.os_type
 
     @property
     def public_ssh_key(self):
@@ -168,7 +182,7 @@ def get_id_prefix(id_prefix=1, proxmox_node_scale=3, node=None):
         return id_prefix
     for i in range(1, proxmox_node_scale + 1):
         if str(i) in node:
-            return str(i)
+            return i
     return id_prefix
 
 
@@ -255,3 +269,13 @@ def clear_server_entry(ip):
     except Exception as warning:
         logging.warning(crayons.yellow(f'{ip} not found on ~/.ssh/known_hosts'))
         logging.warning(crayons.white(warning))
+
+
+def human_readable_disk_size(size):
+   if size == 0:
+       return '0B'
+   size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+   index = int(math.floor(math.log(size, 1024)))
+   power = math.pow(1024, index)
+   result = round(size/power, 2)
+   return int(result), size_name[index]
