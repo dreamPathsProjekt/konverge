@@ -91,6 +91,8 @@ class ProxmoxClusterConfigFile(GenericConfigFile):
 
 
 class ConfigSerializer:
+    name: str
+
     def __init__(self, config: dict):
         self._serialize_values = singledispatch(self._serialize_values)
         self._serialize_values.register(dict, self._serialize_values_dict)

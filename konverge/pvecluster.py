@@ -22,7 +22,8 @@ class ClusterConfig:
             return self.cluster.network.gateway
         return ''
 
-    def get_existing_node_attributes(self, node: ConfigSerializer):
+    @staticmethod
+    def get_existing_node_attributes(node: ConfigSerializer):
         attributes = (
             'host',
             'user',
@@ -35,23 +36,24 @@ class ClusterConfig:
         )
         return [attribute for attribute in attributes if hasattr(node, attribute)]
 
-    def _host_and_ip_missing(self, node: ConfigSerializer, attributes_exist: list):
+    @staticmethod
+    def _host_and_ip_missing(node: ConfigSerializer, attributes_exist: list):
         predicate = not 'ip' in attributes_exist and not 'host' in attributes_exist
         if predicate:
             logging.error(crayons.red(f'Invalid entry for node {node.name}. At least a value of "host", "ip" is required.'))
         return predicate
 
-    def get_nodes(self, filter=None):
-        filtered_nodes = [node for node in self.cluster.nodes if filter and filter in node.name]
-        nodes = filtered_nodes if filter else self.cluster.nodes
+    def get_nodes(self, namefilter=None):
+        filtered_nodes = [node for node in self.cluster.nodes if namefilter and namefilter in node.name]
+        nodes = filtered_nodes if namefilter else self.cluster.nodes
 
-        if filter and not filtered_nodes:
+        if namefilter and not filtered_nodes:
             return []
         return nodes
 
-    def get_node_ips(self, filter=None):
+    def get_node_ips(self, namefilter=None):
         node_ips = []
-        for node in self.get_nodes(filter):
+        for node in self.get_nodes(namefilter):
             attributes_exist = self.get_existing_node_attributes(node=node)
             if 'ip' in attributes_exist:
                 node_ips.append(node.ip)
@@ -62,8 +64,8 @@ class ClusterConfig:
             return self.cluster.network.base
         return None
 
-    def get_allocated_ips_from_config(self, filter=None):
-        allocated = set(self.get_node_ips(filter))
+    def get_allocated_ips_from_config(self, namefilter=None):
+        allocated = set(self.get_node_ips(namefilter))
         network = self.get_network_base()
         if network:
             [allocated.add(f'{network}.{i}') for i in range(6)]
@@ -84,9 +86,9 @@ class ClusterConfig:
             return self.cluster.network.loadbalancer_range.start, self.cluster.network.loadbalancer_range.end
         return 6, 254
 
-    def get_proxmox_ssh_connection_objects(self, filter=None):
+    def get_proxmox_ssh_connection_objects(self, namefilter=None):
         connections = []
-        for node in self.get_nodes(filter):
+        for node in self.get_nodes(namefilter):
             attributes_exist = self.get_existing_node_attributes(node=node)
             if 'host' in attributes_exist:
                 connections.append(
