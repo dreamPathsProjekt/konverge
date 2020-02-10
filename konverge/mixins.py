@@ -66,7 +66,7 @@ class CommonVMMixin:
     def generate_allowed_ip(self):
         network = settings.cluster_config_client.get_network_base()
         start, end = settings.cluster_config_client.get_allowed_range()
-        allocated = settings.cluster_config_client.get_allocated_ips_from_config(filter=self.vm_attributes.node)
+        allocated = settings.cluster_config_client.get_allocated_ips_from_config(namefilter=self.vm_attributes.node)
         allocated.update(self.get_allocated_ips_per_node_interface())
 
         for subnet_ip in range(start, end):
@@ -119,6 +119,7 @@ class CommonVMMixin:
         return created
 
     def destroy_vm(self):
+        self.remove_ssh_config_entry()
         deleted = self.client.destroy_vm(
             node=self.vm_attributes.node,
             vmid=self.vmid
@@ -126,7 +127,6 @@ class CommonVMMixin:
 
         if not self.log_create_delete(deleted, destroy=True):
             return deleted
-        self.remove_ssh_config_entry()
         return deleted
 
     def log_create_delete(self, response, destroy=False):
@@ -166,7 +166,7 @@ class CommonVMMixin:
         slots = [i for i in range(max_drives)]
         for slot in slots:
             driver = f'scsi{slot}' if self.vm_attributes.scsi else f'virtio{slot}'
-            volume = self.get_storage_from_config(driver=driver)
+            volume = self.get_storage_from_config(driver)
             if volume:
                 logging.warning(crayons.yellow(f'Found allocated volume: {driver}'))
             else:
@@ -176,12 +176,11 @@ class CommonVMMixin:
     def attach_hotplug_drive(self, disk_size=20):
         slot, driver = self.get_unallocated_disk_slots()
         print(crayons.cyan(f'Attaching new volume volume type: {self.storage} on driver: {driver}'))
-        return self.attach_volume_to_vm(
-            volume=self.storage,
-            root_volume=False,
-            disk_size=disk_size,
-            drive_slot=str(slot)
-        )
+        attach = self.proxmox_node.execute(f'qm set {self.vmid} --{driver} {self.storage}:{disk_size}')
+        if attach.failed:
+            logging.error(crayons.red(f'Failed to attach {driver} for VM: {self.vmid}'))
+            return
+        print(crayons.green(f'Attached {driver} for VM: {self.vmid}'))
 
     def add_cloudinit_drive(self, drive_slot='2'):
         return self.client.add_cloudinit_drive(
@@ -239,14 +238,13 @@ class CommonVMMixin:
 
     def inject_cloudinit_values(self, invalidate=False):
         if invalidate:
-            self.client.inject_vm_cloudinit(
+            return self.client.inject_vm_cloudinit(
                 node=self.vm_attributes.node,
                 vmid=self.vmid,
                 ssh_key_content=None,
                 vm_ip=None,
                 gateway=None
             )
-            return
 
         if not self.vm_attributes.public_key_exists:
             logging.error(crayons.red(f'Public key: {self.vm_attributes.public_ssh_key} does not exist. Abort'))
@@ -258,13 +256,15 @@ class CommonVMMixin:
                 )
             )
         self.create_allowed_ip_if_not_exists()
+        gateway = self.vm_attributes.gateway if self.vm_attributes.gateway else settings.cluster_config_client.gateway
 
-        self.client.inject_vm_cloudinit(
+        print(crayons.blue(f'Inject cloudinit values ipconfig: ip={self.allowed_ip}, gateway={gateway}, sshkeys: {self.vm_attributes.public_ssh_key}'))
+        return self.client.inject_vm_cloudinit(
             node=self.vm_attributes.node,
             vmid=self.vmid,
             ssh_key_content=self.vm_attributes.read_public_key(),
             vm_ip=self.allowed_ip,
-            gateway=self.vm_attributes.gateway if self.vm_attributes.gateway else settings.cluster_config_client.gateway
+            gateway=gateway
         )
 
     def create_allowed_ip_if_not_exists(self):
@@ -354,9 +354,10 @@ class ExecuteStagesMixin:
     inject_cloudinit_values: callable
     remove_ssh_config_entry: callable
 
-    def start_stage(self):
+    def start_stage(self, cloudinit=False):
         print(crayons.cyan(f'Stage: Start VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
-        self.inject_cloudinit_values()
+        if cloudinit:
+            self.inject_cloudinit_values()
         started = self.start_vm()
         if started:
             print(crayons.green(f'Start VM {self.vm_attributes.name} {self.vmid}: Success'))

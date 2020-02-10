@@ -37,7 +37,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
             _, self.username = self.get_vmid_and_username()
         else:
             self.vmid, self.username = self.get_vmid_and_username()
-        self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
+        self.vm_attributes.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
 
         self._update_description()
@@ -70,7 +70,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         return options.get(os_type)
 
     def _update_description(self):
-        self.vm_attributes.description = '"Generic Linux base template VM created by CloudImage."'
+        self.vm_attributes.description = 'Generic Linux base template VM created by CloudImage.'
 
     def generate_vmid_and_username(self, id_prefix):
         raise NotImplementedError
@@ -116,7 +116,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
             destroy=False
     ):
         if destroy:
-            self.stop_stage()
+            self.stop_stage(cloudinit=True)
             self.destroy_vm()
             return self.vmid
 
@@ -146,7 +146,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         self.set_vga_display()
 
         if self.preinstall:
-            self.start_stage()
+            self.start_stage(cloudinit=True)
             print(crayons.cyan(f'Stage: Install kubernetes pre-requisites from file {self.filename}'))
             self.install_kube(
                 filename=self.filename,
@@ -155,7 +155,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
                 storageos_requirements=storageos_requirements
             )
             time.sleep(5)
-            self.stop_stage()
+            self.stop_stage(cloudinit=True)
 
         print(crayons.cyan(f'Stage: exporting template from VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         self.export_template()
@@ -169,7 +169,7 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     filename = 'req_ubuntu.sh'
 
     def _update_description(self):
-        self.vm_attributes.description = f'"Ubuntu 18.04.3 base template VM created by CloudImage."'
+        self.vm_attributes.description = f'Ubuntu 18.04.3 base template VM created by CloudImage.'
 
     def generate_vmid_and_username(self, id_prefix, preinstall=True):
         template_vmid = int(f'{id_prefix}100') if self.preinstall else int(f'{id_prefix}000')
@@ -212,7 +212,7 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     filename = 'req_centos.sh'
 
     def _update_description(self):
-        self.vm_attributes.description = f'"CentOS 7 base template VM created by CloudImage."'
+        self.vm_attributes.description = f'CentOS 7 base template VM created by CloudImage.'
 
     def generate_vmid_and_username(self, id_prefix):
         template_vmid = int(f'{id_prefix}101') if self.preinstall else int(f'{id_prefix}001')

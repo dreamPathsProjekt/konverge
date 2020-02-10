@@ -18,7 +18,8 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             template: CloudinitTemplate = None,
             proxmox_node: FabricWrapper = None,
             vmid=None,
-            username=None
+            username=None,
+            hotplug_disk_size: int = None
     ):
         self.vm_attributes = vm_attributes
         self.client = client
@@ -26,10 +27,16 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         self.proxmox_node = proxmox_node if proxmox_node else FabricWrapper(host=vm_attributes.node)
         self.self_node = FabricWrapper(host=vm_attributes.name)
 
-        self.vmid, _ = (vmid, None) if vmid else self.get_vmid_and_username()
-        _, self.username = (None, username) if username else self.get_vmid_and_username()
-        self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
+        if not vmid and not username:
+            self.vmid, self.username = self.get_vmid_and_username()
+        else:
+            self.vmid, _ = (vmid, None) if vmid else self.get_vmid_and_username()
+            _, self.username = (None, username) if username else self.get_vmid_and_username()
+        self.vm_attributes.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
+        self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
+        self.hotplug_disk_size = hotplug_disk_size
         self.allowed_ip = ''
+        self.vm_attributes.os_type = self.template.vm_attributes.os_type if self.template else vm_attributes.os_type
 
         self._update_description()
         (
@@ -40,7 +47,11 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
 
     def _update_description(self):
         if self.template:
-            self.vm_attributes.description = f'Kubernetes node {self.vm_attributes.name} generated from template: {self.template.vm_attributes.name}'
+            self.vm_attributes.description = (
+                f'Kubernetes node {self.vm_attributes.name} ' +
+                f'generated from template vmid: {self.template.vmid} ,' +
+                f'template name: {self.template.vm_attributes.name}'
+            )
         elif self.vm_attributes.description:
             pass
         else:
@@ -95,9 +106,28 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         if self.vm_attributes.disk_size != self.template.vm_attributes.disk_size:
             self.resize_disk()
 
-    # TODO: WIP
     def execute(self, start=False, destroy=False):
         if destroy:
             self.stop_stage()
             self.destroy_vm()
             return self.vmid
+
+        print(crayons.cyan(f'Stage: Create VM: {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
+        logging.warning(crayons.yellow(self.create_vm()))
+
+        print(crayons.cyan(f'Stage: Update resource values for VM: {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
+        logging.warning(crayons.yellow(self.set_instance_resources()))
+
+        print(crayons.cyan(f'Stage: Resize disk for VM: {self.vm_attributes.name} {self.vmid} to {self.vm_attributes.disk_size}'))
+        self.set_instance_disk_size()
+        self.inject_cloudinit_values()
+
+        if self.hotplug_disk_size:
+            print(crayons.cyan(f'Enable hotplug for VM: {self.vm_attributes.name} {self.vmid}'))
+            self.enable_hotplug()
+            print(crayons.cyan(f'Stage: Attach hotplug disk {self.hotplug_disk_size}G to VM: {self.vm_attributes.name} {self.vmid}'))
+            self.attach_hotplug_drive(self.hotplug_disk_size)
+
+        if start:
+            print(crayons.cyan(f'Start requested - Starting VM: {self.vm_attributes.name} {self.vmid}'))
+            self.start_stage()

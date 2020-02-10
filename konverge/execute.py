@@ -1,7 +1,7 @@
 from konverge.settings import vm_client
 from konverge.utils import VMAttributes, Storage, FabricWrapper
 from konverge.cloudinit import CloudinitTemplate
-# from konverge.instance import InstanceClone
+from konverge.instance import InstanceClone
 from konverge.queries import VMQuery
 
 def execute():
@@ -21,22 +21,32 @@ def execute():
 
     # Create Template with preinstall
     # ubuntu_template.execute()
-    # ubuntu_template.destroy_vm()
-
+    # ubuntu_template.execute(destroy=True)
     # Tested add and remove ssh config entries with local fabric object.
 
-    query = VMQuery(client=vm_client, name='poul')
-    for instance in query.execute(node='vhost2'):
+    query = VMQuery(client=vm_client, name='test-cluster-0')
+    for instance in query.execute(node='vhost3'):
         print(vars(instance))
         print(vars(instance.vm_attributes))
+        print(instance.execute(destroy=True))
+
     # Create clones
-    # print(ubuntu_template.client.get_cluster_vms(node='vhost3'))
-    # print(ubuntu_template.get_unallocated_disk_slots())
+    # clone_attributes = VMAttributes(
+    #     name='test-cluster-0',
+    #     node='vhost3',
+    #     pool='development',
+    #     os_type='ubuntu',
+    #     storage_type=Storage.nfs,
+    #     disk_size=10,
+    #     ssh_keyname='/home/dritsas/.ssh/vhost3-vms',
+    #     gateway='10.0.100.105'
+    # )
+    #
     # instance_clone = InstanceClone(
-    #     vm_attributes=template_attributes,
+    #     vm_attributes=clone_attributes,
     #     client=vm_client,
     #     proxmox_node=proxmox_node,
-    #     template=ubuntu_template
+    #     template=ubuntu_template,
+    #     hotplug_disk_size=10
     # )
-
-    # ubuntu_template.inject_cloudinit_values(invalidate=True)
+    # instance_clone.execute(start=True)
