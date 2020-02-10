@@ -2,7 +2,7 @@ from konverge.settings import vm_client
 from konverge.utils import VMAttributes, Storage, FabricWrapper
 from konverge.cloudinit import CloudinitTemplate
 # from konverge.instance import InstanceClone
-from konverge.queries import get_cluster_vms
+from konverge.queries import VMQuery
 
 def execute():
     proxmox_node = FabricWrapper(host='vhost3.proxmox')
@@ -25,9 +25,10 @@ def execute():
 
     # Tested add and remove ssh config entries with local fabric object.
 
-    for instance in get_cluster_vms(): # (node='vhost3', template=True):
-        print(vars(instance.get('instance')))
-        print(instance.get('ip_address'))
+    query = VMQuery(client=vm_client, name='poul')
+    for instance in query.execute(node='vhost2'):
+        print(vars(instance))
+        print(vars(instance.vm_attributes))
     # Create clones
     # print(ubuntu_template.client.get_cluster_vms(node='vhost3'))
     # print(ubuntu_template.get_unallocated_disk_slots())

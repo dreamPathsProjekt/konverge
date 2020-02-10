@@ -39,7 +39,8 @@ class CommonVMMixin:
         storage_type = self.vm_attributes.image_storage_type if image else self.vm_attributes.storage_type
         storage_details = self.client.get_storage_detail_path_content(storage_type=storage_type)
         directory = 'images' if 'images' in storage_details.get('content') else ''
-        location = os.path.join(storage_details.get('path'), directory)
+        path = storage_details.get('path')
+        location = os.path.join(path if path else '', directory)
         storage = storage_details.get('name')
         return storage, storage_details, location
 

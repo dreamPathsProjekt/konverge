@@ -78,6 +78,14 @@ class VMAttributes:
         self.gateway = gateway
 
     @property
+    def description_os_type(self):
+        if self.description and 'Ubuntu' in  self.description:
+            return 'ubuntu'
+        elif self.description and 'CentOS' in self.description:
+            return 'centos'
+        return self.os_type
+
+    @property
     def public_ssh_key(self):
         return f'{self.ssh_keyname}.pub'
 
@@ -174,7 +182,7 @@ def get_id_prefix(id_prefix=1, proxmox_node_scale=3, node=None):
         return id_prefix
     for i in range(1, proxmox_node_scale + 1):
         if str(i) in node:
-            return str(i)
+            return i
     return id_prefix
 
 

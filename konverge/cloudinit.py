@@ -22,6 +22,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
             vm_attributes: VMAttributes,
             client: VMAPIClient,
             proxmox_node: FabricWrapper = None,
+            vmid=None,
             unused_driver = 'unused0',
             preinstall = True
     ):
@@ -31,7 +32,11 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         self.unused_driver = unused_driver
         self.preinstall = preinstall
 
-        self.vmid, self.username = self.get_vmid_and_username()
+        if vmid:
+            self.vmid = vmid
+            _, self.username = self.get_vmid_and_username()
+        else:
+            self.vmid, self.username = self.get_vmid_and_username()
         self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
 

@@ -26,11 +26,12 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         self.proxmox_node = proxmox_node if proxmox_node else FabricWrapper(host=vm_attributes.node)
         self.self_node = FabricWrapper(host=vm_attributes.name)
 
-        self.vmid, _ = vmid, None if vmid else self.get_vmid_and_username()
-        _, self.username = None, username if username else self.get_vmid_and_username()
+        self.vmid, _ = (vmid, None) if vmid else self.get_vmid_and_username()
+        _, self.username = (None, username) if username else self.get_vmid_and_username()
         self.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.allowed_ip = ''
 
+        self._update_description()
         (
             self.storage,
             self.storage_details,
@@ -51,9 +52,11 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         vmids = [vm.get('vmid') for vm in self.client.get_cluster_vms(node=self.vm_attributes.node)]
         allocated_ids = set(int(vmid) for vmid in vmids) if vmids else None
 
+        username = self.template.username if self.template else 'ubuntu'
         for vmid in range(start, end):
             if vmid not in allocated_ids:
-                return str(vmid), self.template.username
+                return vmid, username
+        return None, username
 
     def create_vm(self):
         """
