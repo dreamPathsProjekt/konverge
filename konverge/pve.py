@@ -365,6 +365,18 @@ class VMAPIClient(ProxmoxAPIClient):
         gateway = gw.split('=')[-1]
         return ip_address, netmask, gateway
 
+    def get_all_vm_allocated_ips_all_nodes(self):
+        allocated = set()
+        for node_instance in self.get_cluster_nodes():
+            node = node_instance.get('name')
+            vms = self.get_cluster_vms(node)
+            if not vms:
+                continue
+            [allocated.add(self.get_ip_config_from_vm_cloudinit(node=node, vmid=vm.get('vmid'))[0]) for vm in vms]
+        allocated.remove(None)
+        print(crayons.white(f'Cloudinit allocated ips: {allocated}'))
+        return allocated
+
     def agent_get_interfaces(self, node, vmid, verbose=False, filter_lo=True):
         node_resource = self._get_single_node_resource(node)
         try:

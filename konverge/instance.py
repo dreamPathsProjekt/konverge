@@ -9,6 +9,7 @@ from konverge.utils import (
     Storage,
     BackupMode
 )
+from konverge.settings import cluster_config_client
 from konverge.cloudinit import CloudinitTemplate
 
 
@@ -26,7 +27,9 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         self.vm_attributes = vm_attributes
         self.client = client
         self.template = template
-        self.proxmox_node = proxmox_node if proxmox_node else FabricWrapper(host=vm_attributes.node)
+        self.proxmox_node = proxmox_node if proxmox_node else (
+            cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
+        )
         self.self_node = FabricWrapper(host=vm_attributes.name)
 
         if not vmid and not username:
