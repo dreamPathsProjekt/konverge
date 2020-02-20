@@ -31,6 +31,7 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
         )
         self.self_node = FabricWrapper(host=vm_attributes.name)
+        self.self_node_sudo = FabricWrapper(host=vm_attributes.name, sudo=True)
 
         if not vmid and not username:
             self.vmid, self.username = self.get_vmid_and_username()
