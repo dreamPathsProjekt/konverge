@@ -6,6 +6,7 @@ from fabric2 import Result
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
+from konverge.settings import WORKDIR
 
 
 CNI = {
@@ -32,6 +33,7 @@ class CNIDefinitions(NamedTuple):
 
 
 class KubeProvisioner:
+    # TODO: Check for nc, wget & ip commands availability
     def __init__(
             self,
             instance: InstanceClone,
@@ -65,6 +67,16 @@ class KubeProvisioner:
             if '--certificate-key' in line:
                 return line.split('--certificate-key')[-1].strip()
 
+    @staticmethod
+    def write_config_to_file(file, local_file_path, script_body):
+        try:
+            with open(local_file_path, mode='w') as local_script_fp:
+                local_script_fp.write('\n'.join(script_body))
+            return file, local_file_path, None
+        except (OSError, IOError) as file_write_error:
+            logging.error(crayons.red(file_write_error))
+            return None, None, file_write_error
+
     def install_kube(
             self,
             kubernetes_version='1.16.3-00',
@@ -77,6 +89,136 @@ class KubeProvisioner:
             docker_version=docker_version,
             storageos_requirements=storageos_requirements
         )
+
+    def generate_keepalived_healthcheck(self, virtual_ip):
+        local = LOCAL
+        script_file = 'check_apiserver.sh'
+        local_workdir = os.path.join(WORKDIR, 'bootstrap')
+        local_script_path = os.path.join(local_workdir, script_file)
+        local.run(f'mkdir -p {local_workdir}')
+
+        check_apiserver_sh = (
+            '# !/bin/sh',
+            '',
+            'errorExit() {',
+            '    echo "*** $*" 1>&2',
+            '    exit 1',
+            '}',
+            '',
+            f'curl --silent --max-time 2 --insecure https://localhost:{self.control_plane.apiserver_port}/ -o /dev/null || errorExit "Error GET https://localhost:{self.control_plane.apiserver_port}/"',
+            f'if ip addr | grep -q {virtual_ip}; then',
+            f'    curl --silent --max-time 2 --insecure https://{virtual_ip}:{self.control_plane.apiserver_port}/ -o /dev/null || errorExit "Error GET https://{virtual_ip}:{self.control_plane.apiserver_port}/"',
+            'fi'
+        )
+        return self.write_config_to_file(
+            file=script_file,
+            local_file_path=local_script_path,
+            script_body=check_apiserver_sh
+        )
+
+    def generate_keepalived_config(self, virtual_ip, interface, state, priority):
+        local = LOCAL
+        config_file = 'keepalived.conf'
+        local_workdir = os.path.join(WORKDIR, 'bootstrap')
+        local_config_path = os.path.join(local_workdir, config_file)
+        local.run(f'mkdir -p {local_workdir}')
+
+        keepalived_config = (
+            'vrrp_script check_apiserver {',
+            '  script "/etc/keepalived/check_apiserver.sh"',
+            '  interval 3',
+            '  weight -2',
+            '  fall 10',
+            '  rise 2',
+            '}',
+            '',
+            'vrrp_instance CLUSTER {',
+            f'  state {state}',
+            f'  interface {interface}',
+            '  virtual_router_id 51',
+            f'  priority {priority}',
+            '  authentication {',
+            '    auth_type PASS',
+            '    auth_pass pass1234',
+            '  }',
+            '  virtual_ipaddress {',
+            f'    {virtual_ip}',
+            '  }',
+            '  track_script {',
+            '    check_apiserver',
+            '  }',
+            '}'
+        )
+        return self.write_config_to_file(
+            file=config_file,
+            local_file_path=local_config_path,
+            script_body=keepalived_config
+        )
+
+    def get_instance_interface(self):
+        interfaces = self.instance.client.agent_get_interfaces(
+            node=self.instance.vm_attributes.node, vmid=self.instance.vmid
+        )
+        interface = interfaces[0].get('name') if interfaces else 'eth0'
+        return interface
+
+    def get_control_plane_virtual_ip(self):
+        if not self.control_plane.apiserver_ip:
+            self.control_plane.apiserver_ip = self.instance.generate_allowed_ip()
+        return self.control_plane.apiserver_ip
+
+    def install_control_plane_loadbalancer(self, is_leader=True):
+        if not self.control_plane.ha_masters:
+            logging.warning(crayons.yellow('Skip install keepalived. Control Plane not Deployed in High Available Mode.'))
+            return None
+
+        local = LOCAL
+        host = self.instance.vm_attributes.name
+
+        remote_path = '/etc/keepalived'
+        state = 'MASTER' if is_leader else 'BACKUP'
+        priority = '101' if is_leader else '100'
+
+        interface = self.get_instance_interface()
+        virtual_ip = self.get_control_plane_virtual_ip()
+        script_file, local_script_path, script_error = self.generate_keepalived_healthcheck(virtual_ip)
+        config_file, local_config_path, config_error = self.generate_keepalived_config(
+            virtual_ip=virtual_ip,
+            interface=interface,
+            state=state,
+            priority=priority
+        )
+
+        if script_error or config_error:
+            logging.error(crayons.red(f'Abort keepalived install on {host}'))
+            return None
+
+        print(crayons.cyan(f'Sending config files to {host}'))
+        sent1 = local.run(f'scp {local_config_path} {host}:~')
+        sent2 = local.run(f'scp {local_script_path} {host}:~')
+
+        if sent1.ok and sent2.ok:
+            print(crayons.blue(f'Installing keepalived service on {host}'))
+
+            if self.instance.vm_attributes.os_type == 'ubuntu':
+                self.instance.self_node_sudo.execute('apt-get install -y keepalived')
+            elif self.instance.vm_attributes.os_type == 'centos':
+                self.instance.self_node_sudo.execute('yum install -y keepalived')
+            else:
+                logging.error(crayons.red(f'Abort. Distribution: {self.instance.vm_attributes.os_type} not supported for keepalived.'))
+                return None
+
+            self.instance.self_node.execute(f'sudo mv {config_file} {remote_path} && sudo mv {script_file} {remote_path}')
+            self.instance.self_node_sudo.execute(f'chmod 0666 {remote_path}/{config_file}')
+
+            restart = self.instance.self_node_sudo.execute(f'systemctl restart keepalived')
+            if restart.ok:
+                self.instance.self_node_sudo.execute('systemctl status keepalived')
+                test_connection = f'if nc -v -w 5 {virtual_ip} {self.control_plane.apiserver_port}; then echo "Success"; fi'
+                output = self.instance.self_node.execute(test_connection).stderr
+                if 'Connection refused' in output.strip():
+                    print(crayons.green(f'Keepalived running on {host} with virtual ip: {virtual_ip}'))
+            return virtual_ip
 
     def bootstrap_control_plane(self):
         cni_definitions = self.supported_cnis(networking=self.control_plane.networking)
@@ -113,12 +255,13 @@ class KubeProvisioner:
         time.sleep(60)
         self.post_install_steps()
         if not self.deploy_container_networking(cni_definitions):
-            logging.error(crayons.red(''))
+            logging.error(crayons.red(f'Container networking {self.control_plane.networking} failed to deploy correctly.'))
             return None
 
         KubeExecutor.wait_for_running_system_status(self.instance.self_node, namespace='kube-system', master_node=True)
         if self.control_plane.ha_masters:
             return self.get_certificate_key(deployed)
+        return None
 
     def rollback_node(self):
         logging.warning(crayons.yellow(f'Performing Node {self.instance.vm_attributes.name} Rollback.'))
@@ -166,6 +309,10 @@ class UbuntuKubeProvisioner(KubeProvisioner):
 
 
 class KubeExecutor:
+    def __init__(self, wrapper: FabricWrapper = None):
+        self.wrapper = wrapper
+        self.local = LOCAL
+
     @staticmethod
     def wait_for_running_system_status(wrapper: FabricWrapper, namespace='kube-system', master_node=False, poll_interval=1):
         runner = LOCAL.run if not master_node else wrapper.execute

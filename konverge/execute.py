@@ -27,7 +27,11 @@ def execute():
     query = VMQuery(client=vm_client, name='po')
     for instance in query.execute(node='vhost2'):
         print(vars(instance))
-        print(instance.generate_allowed_ip())
+        # print(instance.generate_allowed_ip())
+
+        # Needs agent installed
+        # print(instance.client.agent_get_interfaces(node=instance.vm_attributes.node, vmid=instance.vmid))
+
         # print(vars(instance.vm_attributes))
         # print(instance.execute(destroy=True))
         # print(instance.backup_export(storage=Storage.nfs))
