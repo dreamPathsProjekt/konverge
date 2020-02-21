@@ -40,10 +40,10 @@ def execute():
         # print(instance.backup_export(storage=Storage.nfs))
 
     # Create clones
-    instances = []
-    for i in range(3):
-        query = VMQuery(client=vm_client, name=f'test-cluster-{i}')
-        instance_clone = query.execute(node='vhost3')[0]
+    # instances = []
+    # for i in range(3):
+    #     query = VMQuery(client=vm_client, name=f'test-cluster-{i}')
+    #     instance_clone = query.execute(node='vhost3')[0]
 
         # clone_attributes = VMAttributes(
         #     name=f'test-cluster-{i}',
@@ -68,7 +68,7 @@ def execute():
         # instance_clone.execute(start=True)
         # instances.append(instance_clone)
 
-        instance_clone.execute(destroy=True)
+        # instance_clone.execute(destroy=True)
 
     # Needs more time to initialize
     # time.sleep(120)
@@ -133,4 +133,10 @@ def execute():
     #     set_current_context=True
     # )
     # kube_executor.deploy_dashboard(local=False)
+
+    kube_executor = KubeExecutor()
+    kube_executor.unset_local_cluster_config(
+        cluster_name='test-cluster',
+        cluster={'user': 'admin-test', 'context': 'test-context'}
+    )
 
