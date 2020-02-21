@@ -309,7 +309,7 @@ class KubeProvisioner:
     def get_join_token(self, control_plane_node=False, certificate_key=''):
         join_token = ''
         if self.control_plane.ha_masters:
-            token_list = self.instance.self_node_sudo.execute("sudo kubeadm token list").stdout.split('\n')
+            token_list = self.instance.self_node_sudo.execute("kubeadm token list").stdout.split('\n')
             for line in token_list:
                 if 'authentication,signing' in line:
                     print(crayons.white(line))
@@ -622,7 +622,9 @@ class KubeExecutor:
                 except yaml.YAMLError as yaml_error:
                     logging.error(crayons.red(f'Error: failed to load from {local_config_base}'))
                     logging.error(crayons.red(f'{yaml_error}'))
+                    print(crayons.blue(f'Performing rollback of {local_config_base}'))
                     self.local.run(f'mv {local_config_base}.bak {local_config_base}')
+                    print(crayons.green('Rollback complete'))
                     return
         except Exception as generic:
             logging.error(crayons.red(f'Error during writing to kube config {local_config_base}: {generic}'))
@@ -686,3 +688,36 @@ class KubeExecutor:
             all_complete = all(complete_table)
             time.sleep(poll_interval)
         print(crayons.green(f'All {namespace} pods reached "Desired" state.'))
+
+    def deploy_dashboard(self, remote_path='/opt/kube', local=True):
+        """
+        Argument remote_path exists on hosts with the file by previously running install_kube() method.
+        """
+        prepend = f'HOME={self.home} ' if local else ''
+        run = self.local.run if local else self.wrapper.execute
+        bootstrap_path = os.path.join(BASE_PATH, 'bootstrap') if local else os.path.join(remote_path, 'bootstrap')
+        user_creation = f'{bootstrap_path}/dashboard-adminuser.yaml'
+
+        print(crayons.cyan('Deploying Dashboard'))
+        dashboard = run(f'{prepend}kubectl apply -f {KUBE_DASHBOARD_URL}')
+        if dashboard.ok:
+            print(crayons.green(f'Kubernetes Dashboard deployed successfully.'))
+            print(crayons.cyan('Deploying User admin-user with role-binding: cluster-admin'))
+            time.sleep(30)
+
+            user_role = run(f'{prepend}kubectl apply -f {user_creation}')
+            if user_role.ok:
+                print(crayons.green(f'User admin-user created successfully.'))
+            else:
+                logging.error(crayons.red('User admin-user was not created correctly.'))
+        else:
+            logging.error(crayons.red('Dashboard was not deployed correctly.'))
+
+    def get_dashboard_token(self, user='admin-user', local=True):
+        prepend = f'HOME={self.home} ' if local else ''
+        run = self.local.run if local else self.wrapper.execute
+        awk_routine = "'{print $1}'"
+        command = f"{prepend}kubectl -n kubernetes-dashboard describe secret $({prepend}kubectl -n kubernetes-dashboard get secret | grep {user} | awk {awk_routine})"
+        print(crayons.white(command))
+        token = run(command)
+        return token.stdout.strip() if token.ok else None
