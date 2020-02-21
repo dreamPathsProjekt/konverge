@@ -9,7 +9,8 @@ from proxmoxer.core import ResourceException
 from konverge.utils import (
     Storage,
     VMAttributes,
-    BootMedia
+    BootMedia,
+    BackupMode
 )
 
 
@@ -228,10 +229,50 @@ class VMAPIClient(ProxmoxAPIClient):
             description=description
         )
 
+    def backup_vm(
+            self,
+            node,
+            storage,
+            vmid=None,
+            backup_mode: BackupMode = BackupMode.stop,
+            remove=True,
+            all_vms=False
+    ):
+        """
+        :param node:
+        :param vmid:
+        :param storage:
+        :param backup_mode:
+        :param remove: Remove old backup files if there are more than 'maxfiles' backup files.
+        :param all_vms: Backup all guests on this node. Overrides vmid.
+        :return:
+        """
+        node_resource = self._get_single_node_resource(node)
+        if not vmid and not all_vms:
+            logging.error(crayons.red(f'Vmid missing and parameter "all" not specified.'))
+            return None
+        if all_vms:
+            return self.client.nodes(node_resource['name']).vzdump.create(
+                all='1',
+                mode=backup_mode.value,
+                storage=storage,
+                remove= '1' if remove else '0'
+            )
+        return self.client.nodes(node_resource['name']).vzdump.create(
+            vmid=vmid,
+            mode=backup_mode.value,
+            storage=storage,
+            remove= '1' if remove else '0'
+        )
+
     def get_vm_config(self, node, vmid, current=True):
         current_values = int(current)
         node_resource = self._get_single_node_resource(node)
-        return self.client.nodes(node_resource['name']).qemu(vmid).config.get(current=current_values)
+        try:
+            return self.client.nodes(node_resource['name']).qemu(vmid).config.get(current=current_values)
+        except ResourceException as vmid_config_error:
+            logging.error(crayons.red(vmid_config_error))
+            return None
 
     def update_vm_config(self, node, vmid, storage_operation=False, **vm_kwargs):
         node_resource = self._get_single_node_resource(node)
@@ -251,7 +292,7 @@ class VMAPIClient(ProxmoxAPIClient):
                 hotplug='0' if disable else hotplug
             )
         except ResourceException as invalid:
-            logging.error(invalid)
+            logging.error(crayons.red(invalid))
             return None
 
     def attach_volume_to_vm(self, node, vmid, volume, scsihw='virtio-scsi-pci', scsi=False, disk_size=5, drive_slot='0'):
@@ -327,6 +368,18 @@ class VMAPIClient(ProxmoxAPIClient):
         ip_address = ip_address.split('=')[-1]
         gateway = gw.split('=')[-1]
         return ip_address, netmask, gateway
+
+    def get_all_vm_allocated_ips_all_nodes(self):
+        allocated = set()
+        for node_instance in self.get_cluster_nodes():
+            node = node_instance.get('name')
+            vms = self.get_cluster_vms(node)
+            if not vms:
+                continue
+            [allocated.add(self.get_ip_config_from_vm_cloudinit(node=node, vmid=vm.get('vmid'))[0]) for vm in vms]
+        allocated.remove(None)
+        print(crayons.white(f'Cloudinit allocated ips: {allocated}'))
+        return allocated
 
     def agent_get_interfaces(self, node, vmid, verbose=False, filter_lo=True):
         node_resource = self._get_single_node_resource(node)

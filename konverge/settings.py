@@ -12,6 +12,15 @@ from konverge.pvecluster import ProxmoxClusterConfigFile, ClusterConfig
 BASE_PATH = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 WORKDIR = os.path.abspath(subprocess.check_output('pwd', universal_newlines=True).strip())
 
+CNI = {
+    'flannel': 'https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml',
+    'calico': 'https://docs.projectcalico.org/v3.9/manifests/calico.yaml',
+    'weave': "\"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')&env.NO_MASQ_LOCAL=1\"",
+    'weave-default': "\"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')\""
+}
+KUBE_DASHBOARD_URL = 'https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta4/aio/deploy/recommended.yaml'
+
+
 try:
     cluster_config = ProxmoxClusterConfigFile()
     cluster_config_client = ClusterConfig(cluster_config)
