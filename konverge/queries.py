@@ -84,6 +84,8 @@ class VMQuery:
                 result_pool
             ) = vm_instance.get('vmid'), vm_instance.get('node'), vm_instance.get('pool')
             config = self.client.get_vm_config(node=result_node, vmid=result_vmid)
+            if not config:
+                continue
             ip_address, netmask, gateway = self.client.get_ip_config_from_vm_cloudinit(
                 node=result_node,
                 vmid=result_vmid
