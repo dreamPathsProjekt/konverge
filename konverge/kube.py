@@ -17,6 +17,11 @@ CNI = {
 }
 
 
+class LinuxPackage(NamedTuple):
+    command: str
+    package: str
+
+
 class ControlPlaneDefinitions(NamedTuple):
     ha_masters: bool = False
     networking: str = 'weave'
@@ -33,7 +38,6 @@ class CNIDefinitions(NamedTuple):
 
 
 class KubeProvisioner:
-    # TODO: Check for nc, wget & ip commands availability
     def __init__(
             self,
             instance: InstanceClone,
@@ -44,6 +48,14 @@ class KubeProvisioner:
         self.control_plane = control_plane
         self.remote_path = remote_path
         self.dashboard_user = os.path.join(remote_path, 'dashboard-adminuser.yaml')
+
+    @staticmethod
+    def kube_provisioner_factory(os_type='ubuntu'):
+        options = {
+            'ubuntu': UbuntuKubeProvisioner,
+            'centos': CentosKubeProvisioner
+        }
+        return options.get(os_type)
 
     @staticmethod
     def supported_cnis(networking='weave'):
@@ -89,6 +101,9 @@ class KubeProvisioner:
             docker_version=docker_version,
             storageos_requirements=storageos_requirements
         )
+
+    def check_install_prerequisites(self):
+        raise NotImplementedError
 
     def generate_keepalived_healthcheck(self, virtual_ip):
         local = LOCAL
@@ -200,14 +215,7 @@ class KubeProvisioner:
         if sent1.ok and sent2.ok:
             print(crayons.blue(f'Installing keepalived service on {host}'))
 
-            if self.instance.vm_attributes.os_type == 'ubuntu':
-                self.instance.self_node_sudo.execute('apt-get install -y keepalived')
-            elif self.instance.vm_attributes.os_type == 'centos':
-                self.instance.self_node_sudo.execute('yum install -y keepalived')
-            else:
-                logging.error(crayons.red(f'Abort. Distribution: {self.instance.vm_attributes.os_type} not supported for keepalived.'))
-                return None
-
+            self.check_install_prerequisites()
             self.instance.self_node.execute(f'sudo mv {config_file} {remote_path} && sudo mv {script_file} {remote_path}')
             self.instance.self_node_sudo.execute(f'chmod 0666 {remote_path}/{config_file}')
 
@@ -303,9 +311,85 @@ class KubeProvisioner:
             print(crayons.green(f'Container Networking {self.control_plane.networking} deployed successfully.'))
             return True
 
+    def get_join_token(self, control_plane_node=False, certificate_key=''):
+        join_token = ''
+        if self.control_plane.ha_masters:
+            token_list = self.instance.self_node_sudo.execute("sudo kubeadm token list").stdout.split('\n')
+            for line in token_list:
+                if 'authentication,signing' in line:
+                    print(crayons.white(line))
+                    join_token = line.split()[0].strip()
+        else:
+            join_token = self.instance.self_node_sudo.execute("kubeadm token list | awk '{print $1}'").stdout.split('TOKEN')[-1].strip()
+            while not join_token:
+                logging.warning(crayons.yellow('Join Token not found on master. Creating new join token...'))
+                self.instance.self_node_sudo.execute("kubeadm token create")
+                join_token = self.instance.self_node_sudo.execute("kubeadm token list | awk '{print $1}'").stdout.split('TOKEN')[-1].strip()
+        cert_hash = self.instance.self_node.execute("openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt | openssl rsa -pubin -outform der 2>/dev/null | openssl dgst -sha256 -hex | sed 's/^.* //'").stdout.strip()
+        if not join_token or not cert_hash:
+            logging.error(crayons.red('Unable to retrieve join-token or cert-hash'))
+            return None
+
+        return (
+            f'kubeadm join {self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash} --control-plane --certificate-key {certificate_key}'
+        ) if control_plane_node else (
+            f'kubeadm join {self.instance.allowed_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash}'
+        )
+
+    def join_node(self, leader: InstanceClone, control_plane_node=False, certificate_key=''):
+        leader_provisioner = KubeProvisioner.kube_provisioner_factory(os_type=leader.vm_attributes.os_type)(
+            instance=leader,
+            control_plane=self.control_plane,
+            remote_path=self.remote_path
+        )
+        join_command = leader_provisioner.get_join_token(control_plane_node, certificate_key)
+        if not join_command:
+            logging.error(crayons.red('Node Join command not generated. Abort.'))
+            return
+        print(crayons.cyan(f'Joining Node: {self.instance.vm_attributes.name} to the cluster'))
+        join = self.instance.self_node_sudo(join_command)
+        if join.failed:
+            logging.error(crayons.red(f'Joining Node: {self.instance.vm_attributes.name} failed. Performing Rollback.'))
+            self.rollback_node()
+            return
+
+        if control_plane_node:
+            self.post_install_steps()
+        print(crayons.green(f'Node: {self.instance.vm_attributes.name} has joined the cluster.'))
+
 
 class UbuntuKubeProvisioner(KubeProvisioner):
-    pass
+    def check_install_prerequisites(self):
+        keepalived = LinuxPackage(command='keepalived', package='keepalived')
+        wget = LinuxPackage(command='wget', package='wget')
+        nc = LinuxPackage(command='nc', package='netcat')
+        ip = LinuxPackage(command='ip', package='iproute2')
+        curl = LinuxPackage(command='curl', package='curl')
+
+        for package in (wget, nc, ip, curl, keepalived):
+            package_exists = self.instance.self_node.execute(f'command {package.command} -h; echo $?', hide=True)
+            exit_code = package_exists.stdout.split()[-1].strip()
+            if exit_code != '0':
+                logging.warning(crayons.yellow(f'Package: {package.package} not found.'))
+                print(crayons.cyan(f'Installing {package.package}'))
+                self.instance.self_node_sudo.execute(f'apt-get install -y {package.package}')
+
+
+class CentosKubeProvisioner(KubeProvisioner):
+    def check_install_prerequisites(self):
+        keepalived = LinuxPackage(command='keepalived', package='keepalived')
+        wget = LinuxPackage(command='wget', package='wget')
+        nc = LinuxPackage(command='nc', package='nmap-ncat')
+        ip = LinuxPackage(command='ip', package='iproute2')
+        curl = LinuxPackage(command='curl', package='curl')
+
+        for package in (wget, nc, ip, curl, keepalived):
+            package_exists = self.instance.self_node.execute(f'command {package.command} -h; echo $?', hide=True)
+            exit_code = package_exists.stdout.split()[-1].strip()
+            if exit_code != '0':
+                logging.warning(crayons.yellow(f'Package: {package.package} not found.'))
+                print(crayons.cyan(f'Installing {package.package}'))
+                self.instance.self_node_sudo.execute(f'yum install -y {package.package}')
 
 
 class KubeExecutor:
