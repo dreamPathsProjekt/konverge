@@ -1,20 +1,15 @@
 import os
 import time
+import uuid
+import yaml
 
 from typing import NamedTuple
 from fabric2 import Result
+from fabric2.util import get_local_user
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
-from konverge.settings import WORKDIR
-
-
-CNI = {
-    'flannel': 'https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml',
-    'calico': 'https://docs.projectcalico.org/v3.9/manifests/calico.yaml',
-    'weave': "\"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')&env.NO_MASQ_LOCAL=1\"",
-    'weave-default': "\"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')\""
-}
+from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL
 
 
 class LinuxPackage(NamedTuple):
@@ -27,7 +22,6 @@ class ControlPlaneDefinitions(NamedTuple):
     networking: str = 'weave'
     apiserver_ip: str = ''
     apiserver_port: int = 6443
-    dashboard_url: str = 'https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta4/aio/deploy/recommended.yaml'
 
 
 class CNIDefinitions(NamedTuple):
@@ -266,7 +260,8 @@ class KubeProvisioner:
             logging.error(crayons.red(f'Container networking {self.control_plane.networking} failed to deploy correctly.'))
             return None
 
-        KubeExecutor.wait_for_running_system_status(self.instance.self_node, namespace='kube-system', master_node=True)
+        master_executor = KubeExecutor(wrapper=self.instance.self_node)
+        master_executor.wait_for_running_system_status(namespace='kube-system', remote=True)
         if self.control_plane.ha_masters:
             return self.get_certificate_key(deployed)
         return None
@@ -392,14 +387,260 @@ class CentosKubeProvisioner(KubeProvisioner):
                 self.instance.self_node_sudo.execute(f'yum install -y {package.package}')
 
 
+class KubeConfig:
+    def __init__(
+        self,
+        config_filename: str,
+        custom_cluster_name=None,
+        custom_context=None,
+        custom_user_name=None,
+        set_current_context=True
+    ):
+        self.config_filename = config_filename
+        self.custom_cluster_name = custom_cluster_name
+        self.custom_context = custom_context
+        self.custom_user_name = custom_user_name
+        self.set_current_context = set_current_context
+
+    @property
+    def clusters(self):
+        config_yaml = self.serialize_config()
+        return config_yaml.get('clusters') if config_yaml else []
+
+    @property
+    def cluster_first(self):
+        return self.clusters[0] if self.clusters else None
+
+    @property
+    def users(self):
+        config_yaml = self.serialize_config()
+        return config_yaml.get('users') if config_yaml else []
+
+    @property
+    def user_first(self):
+        return self.users[0] if self.users else None
+
+    @property
+    def contexts(self):
+        config_yaml = self.serialize_config()
+        return config_yaml.get('contexts') if config_yaml else []
+
+    @property
+    def context_first(self):
+        return self.contexts[0] if self.contexts else None
+
+    @property
+    def current_context(self):
+        config_yaml = self.serialize_config()
+        return config_yaml.get('current-context')
+
+    def serialize_config(self):
+        with open(self.config_filename, mode='r') as local_dump_file:
+            try:
+                return yaml.safe_load(local_dump_file)
+            except yaml.YAMLError as yaml_error:
+                print(crayons.red(f'Error: failed to load from {local_dump_file}'))
+                print(crayons.red(f'{yaml_error}'))
+                return None
+
+    def update_current_context(self, new_context):
+        config_yaml = self.serialize_config()
+        if not self.current_context:
+            config_yaml['current-context'] = new_context
+        else:
+            config_yaml['current-context'] = (
+                new_context
+                if self.set_current_context else
+                self.current_context
+            )
+        return config_yaml
+
+    def get_or_create_custom_cluster_user_values(self, new_cluster_name, new_user_name):
+        cluster_uid = str(uuid.uuid4())[:8]
+        if not self.custom_cluster_name:
+            self.custom_cluster_name = f'{new_cluster_name}-{cluster_uid}'
+        if not self.custom_user_name:
+            self.custom_user_name = f'{new_user_name}-{cluster_uid}'
+
+    @staticmethod
+    def get_cluster_data(cluster: dict):
+        if not cluster:
+            return None, None, None
+        name = cluster.get('name')
+        cluster_obj = cluster.get('cluster')
+        server = cluster_obj.get('server')
+        certificate_authority_data = cluster_obj.get('certificate-authority-data')
+        print(crayons.blue('=' * len('Cluster')))
+        print(crayons.blue('Cluster'))
+        print(crayons.blue('=' * len('Cluster')))
+        print(crayons.cyan('Name: ') + f'{name}')
+        print(crayons.cyan('Server: ') + f'{server}')
+        print('')
+        return name, server, certificate_authority_data
+
+    @staticmethod
+    def get_user_data(user: dict):
+        if not user:
+            return None, None, None
+        name = user.get('name')
+        user_obj = user.get('user')
+        client_certificate_data = user_obj.get('client-certificate-data')
+        client_key_data = user_obj.get('client-key-data')
+        print(crayons.blue('=' * len('User')))
+        print(crayons.blue('User'))
+        print(crayons.blue('=' * len('User')))
+        print(crayons.cyan('Name: ') + f'{name}')
+        print('')
+        return name, client_certificate_data, client_key_data
+
+    @staticmethod
+    def get_context_data(context: dict):
+        if not context:
+            return None, None, None
+        name = context.get('name')
+        context_obj = context.get('context')
+        user = context_obj.get('user')
+        cluster = context_obj.get('cluster')
+        print(crayons.blue('=' * len('Context')))
+        print(crayons.blue('Context'))
+        print(crayons.blue('=' * len('Context')))
+        print(crayons.cyan('Name: ') + f'{name}')
+        print(crayons.cyan('Cluster: ') + f'{cluster}')
+        print(crayons.cyan('User: ') + f'{user}')
+        print('')
+        return name, cluster, user
+
+
 class KubeExecutor:
     def __init__(self, wrapper: FabricWrapper = None):
         self.wrapper = wrapper
         self.local = LOCAL
+        self.dashboard_user = os.path.join(BASE_PATH, 'dashboard-adminuser.yaml')
+        self.host = self.wrapper.connection.original_host
+        self.home = os.path.join('home', get_local_user())
+        self.remote = self.wrapper.execute('echo $HOME').stdout.strip()
 
-    @staticmethod
-    def wait_for_running_system_status(wrapper: FabricWrapper, namespace='kube-system', master_node=False, poll_interval=1):
-        runner = LOCAL.run if not master_node else wrapper.execute
+    def add_local_cluster_config(
+        self,
+        custom_cluster_name=None,
+        custom_context=None,
+        custom_user_name=None,
+        set_current_context=True
+    ):
+        # TODO: Needs further refactoring.
+        local_kube = os.path.join(self.home, '.kube')
+        remote_kube = os.path.join(self.remote, '.kube')
+        local_config_base = os.path.join(local_kube, 'config')
+        remote_config_base = os.path.join(remote_kube, 'config')
+        local_dump_folder = os.path.join(WORKDIR, 'dump', self.host)
+        local_dump = os.path.join(local_dump_folder, 'config.yaml')
+
+        self.local.run(f'mkdir -p {local_dump_folder}')
+        self.local.run(f'scp {self.host}:{remote_config_base} {local_dump}')
+
+        remote_kube_config = KubeConfig(
+            config_filename=local_dump,
+            custom_cluster_name=custom_cluster_name,
+            custom_context=custom_context,
+            custom_user_name=custom_user_name,
+            set_current_context=set_current_context
+        )
+        remote_config_yaml = remote_kube_config.serialize_config()
+        self.local.run(f'rm -rf {local_dump_folder}')
+
+        current_context = remote_kube_config.current_context
+        print(crayons.cyan('Current Context: ') + f'{current_context}')
+        remote_cluster = remote_kube_config.cluster_first
+        remote_user = remote_kube_config.user_first
+        remote_context = remote_kube_config.context_first
+        remote_cluster_name, _, _ = KubeConfig.get_cluster_data(remote_cluster)
+        remote_user_name, _, _ = KubeConfig.get_user_data(remote_user)
+
+        self.local.run(f'cp {local_config_base} {local_config_base}.bak')
+        local_kube_config = KubeConfig(
+            config_filename=local_config_base,
+            custom_cluster_name=custom_cluster_name,
+            custom_context=custom_context,
+            custom_user_name=custom_user_name,
+            set_current_context=set_current_context
+        )
+        local_config_yaml = local_kube_config.serialize_config()
+        local_kube_config.update_current_context(current_context)
+
+        custom_cluster_name_used = True if custom_cluster_name else False
+        custom_user_name_used = True if custom_user_name else False
+        local_kube_config.get_or_create_custom_cluster_user_values(
+            new_cluster_name=remote_cluster_name,
+            new_user_name=remote_user_name
+        )
+
+        local_cluster_entries = local_kube_config.clusters
+        local_context_entries = local_kube_config.contexts
+        local_user_entries = local_kube_config.users
+        for cluster_entry in local_cluster_entries:
+            if cluster_entry.get('name') == remote_cluster_name or custom_cluster_name_used:
+                remote_cluster['name'] = custom_cluster_name
+        for user_entry in local_user_entries:
+            if user_entry.get('name') == remote_user_name or custom_user_name_used:
+                remote_user['name'] = custom_user_name
+        for context_entry in local_context_entries:
+            if context_entry.get('context').get('cluster') == remote_cluster_name or custom_cluster_name_used:
+                remote_context['context']['cluster'] = custom_cluster_name
+            if context_entry.get('context').get('user') == remote_user_name or custom_user_name_used:
+                remote_context['context']['user'] = custom_user_name
+            remote_context['name'] = (
+                custom_context
+                if custom_context else
+                f'{remote_user["name"]}@{remote_cluster["name"]}'
+            )
+
+        if not local_kube_config.clusters:
+            local_config_yaml['clusters'] = remote_config_yaml.get('clusters')
+        else:
+            local_config_yaml['clusters'].append(remote_cluster)
+
+        if not local_kube_config.users:
+            local_config_yaml['users'] = remote_config_yaml.get('users')
+        else:
+            local_config_yaml['users'].append(remote_user)
+
+        if not local_kube_config.contexts:
+            local_config_yaml['contexts'] = remote_config_yaml.get('contexts')
+        else:
+            local_config_yaml['contexts'].append(remote_context)
+
+        local_config_yaml['current-context'] = (
+            custom_context
+            if set_current_context and custom_context else
+            local_kube_config.current_context
+        )
+
+        try:
+            with open(local_config_base, mode='w') as local_config_file_mutated:
+                try:
+                    yaml.safe_dump(local_config_yaml, stream=local_config_file_mutated)
+                except yaml.YAMLError as yaml_error:
+                    logging.error(crayons.red(f'Error: failed to load from {local_config_base}'))
+                    logging.error(crayons.red(f'{yaml_error}'))
+                    self.local.run(f'mv {local_config_base}.bak {local_config_base}')
+                    return
+        except Exception as generic:
+            logging.error(crayons.red(f'Error during writing to kube config {local_config_base}: {generic}'))
+            print(crayons.blue(f'Performing rollback of {local_config_base}'))
+            self.local.run(f'mv {local_config_base}.bak {local_config_base}')
+            print(crayons.green('Rollback complete'))
+
+    # TODO: Refactor signature to accept KubeCluster instance type instead of cluster_name and cluster
+    def unset_local_cluster_config(self, cluster_name: str, cluster: dict):
+        user = cluster.get('user')
+        context = cluster.get('context')
+        self.local.run(f'HOME={self.home} kubectl config use-context {context}')
+        self.local.run(f'HOME={self.home} kubectl config delete-cluster {cluster_name}')
+        self.local.run(f'HOME={self.home} kubectl config delete-context {context}')
+        self.local.run(f'HOME={self.home} kubectl config unset users.{user}')
+
+    def wait_for_running_system_status(self, namespace='kube-system', remote=False, poll_interval=1):
+        runner = LOCAL.run if not remote else self.wrapper.execute
         home = runner('echo ~').stdout.strip()
 
         awk_table_1 = 'awk \'{print $1}\''
