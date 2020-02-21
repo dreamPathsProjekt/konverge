@@ -523,9 +523,9 @@ class KubeExecutor:
         self.wrapper = wrapper
         self.local = LOCAL
         self.dashboard_user = os.path.join(BASE_PATH, 'dashboard-adminuser.yaml')
-        self.host = self.wrapper.connection.original_host
+        self.host = self.wrapper.connection.original_host if self.wrapper else None
         self.home = os.path.expanduser('~')
-        self.remote = self.wrapper.execute('echo $HOME', hide=True).stdout.strip()
+        self.remote = self.wrapper.execute('echo $HOME', hide=True).stdout.strip() if self.wrapper else None
 
     def add_local_cluster_config(
         self,
