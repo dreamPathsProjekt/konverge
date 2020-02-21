@@ -268,7 +268,11 @@ class VMAPIClient(ProxmoxAPIClient):
     def get_vm_config(self, node, vmid, current=True):
         current_values = int(current)
         node_resource = self._get_single_node_resource(node)
-        return self.client.nodes(node_resource['name']).qemu(vmid).config.get(current=current_values)
+        try:
+            return self.client.nodes(node_resource['name']).qemu(vmid).config.get(current=current_values)
+        except ResourceException as vmid_config_error:
+            logging.error(crayons.red(vmid_config_error))
+            return None
 
     def update_vm_config(self, node, vmid, storage_operation=False, **vm_kwargs):
         node_resource = self._get_single_node_resource(node)
@@ -288,7 +292,7 @@ class VMAPIClient(ProxmoxAPIClient):
                 hotplug='0' if disable else hotplug
             )
         except ResourceException as invalid:
-            logging.error(invalid)
+            logging.error(crayons.red(invalid))
             return None
 
     def attach_volume_to_vm(self, node, vmid, volume, scsihw='virtio-scsi-pci', scsi=False, disk_size=5, drive_slot='0'):

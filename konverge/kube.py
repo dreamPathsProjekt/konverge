@@ -5,7 +5,6 @@ import yaml
 
 from typing import NamedTuple
 from fabric2 import Result
-from fabric2.util import get_local_user
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
@@ -17,11 +16,18 @@ class LinuxPackage(NamedTuple):
     package: str
 
 
-class ControlPlaneDefinitions(NamedTuple):
-    ha_masters: bool = False
-    networking: str = 'weave'
-    apiserver_ip: str = ''
-    apiserver_port: int = 6443
+class ControlPlaneDefinitions:
+    def __init__(
+        self,
+        ha_masters: bool = False,
+        networking: str = 'weave',
+        apiserver_ip: str = '',
+        apiserver_port: int = 6443,
+    ):
+        self.ha_masters = ha_masters
+        self.networking = networking
+        self.apiserver_ip = apiserver_ip
+        self.apiserver_port = apiserver_port
 
 
 class CNIDefinitions(NamedTuple):
@@ -168,15 +174,20 @@ class KubeProvisioner:
         interfaces = self.instance.client.agent_get_interfaces(
             node=self.instance.vm_attributes.node, vmid=self.instance.vmid
         )
-        interface = interfaces[0].get('name') if interfaces else 'eth0'
-        return interface
+        if not interfaces:
+            return 'eth0'
+
+        interface_filtered = [interface.get('name') for interface in interfaces if interface.get('name') == 'eth0']
+        if not interface_filtered:
+            return 'eth0'
+        return interface_filtered[0]
 
     def get_control_plane_virtual_ip(self):
         if not self.control_plane.apiserver_ip:
             self.control_plane.apiserver_ip = self.instance.generate_allowed_ip()
         return self.control_plane.apiserver_ip
 
-    def install_control_plane_loadbalancer(self, is_leader=True):
+    def install_control_plane_loadbalancer(self, is_leader=False):
         if not self.control_plane.ha_masters:
             logging.warning(crayons.yellow('Skip install keepalived. Control Plane not Deployed in High Available Mode.'))
             return None
@@ -342,7 +353,7 @@ class KubeProvisioner:
             logging.error(crayons.red('Node Join command not generated. Abort.'))
             return
         print(crayons.cyan(f'Joining Node: {self.instance.vm_attributes.name} to the cluster'))
-        join = self.instance.self_node_sudo(join_command)
+        join = self.instance.self_node_sudo.execute(join_command)
         if join.failed:
             logging.error(crayons.red(f'Joining Node: {self.instance.vm_attributes.name} failed. Performing Rollback.'))
             self.rollback_node()
@@ -401,11 +412,11 @@ class KubeConfig:
         self.custom_context = custom_context
         self.custom_user_name = custom_user_name
         self.set_current_context = set_current_context
+        self.config_yaml = self.serialize_config()
 
     @property
     def clusters(self):
-        config_yaml = self.serialize_config()
-        return config_yaml.get('clusters') if config_yaml else []
+        return self.config_yaml.get('clusters') if self.config_yaml else []
 
     @property
     def cluster_first(self):
@@ -413,8 +424,7 @@ class KubeConfig:
 
     @property
     def users(self):
-        config_yaml = self.serialize_config()
-        return config_yaml.get('users') if config_yaml else []
+        return self.config_yaml.get('users') if self.config_yaml else []
 
     @property
     def user_first(self):
@@ -422,8 +432,7 @@ class KubeConfig:
 
     @property
     def contexts(self):
-        config_yaml = self.serialize_config()
-        return config_yaml.get('contexts') if config_yaml else []
+        return self.config_yaml.get('contexts') if self.config_yaml else []
 
     @property
     def context_first(self):
@@ -431,8 +440,7 @@ class KubeConfig:
 
     @property
     def current_context(self):
-        config_yaml = self.serialize_config()
-        return config_yaml.get('current-context')
+        return self.config_yaml.get('current-context')
 
     def serialize_config(self):
         with open(self.config_filename, mode='r') as local_dump_file:
@@ -444,16 +452,15 @@ class KubeConfig:
                 return None
 
     def update_current_context(self, new_context):
-        config_yaml = self.serialize_config()
         if not self.current_context:
-            config_yaml['current-context'] = new_context
+            self.config_yaml['current-context'] = new_context
         else:
-            config_yaml['current-context'] = (
+            self.config_yaml['current-context'] = (
                 new_context
                 if self.set_current_context else
                 self.current_context
             )
-        return config_yaml
+        return self.config_yaml
 
     def get_or_create_custom_cluster_user_values(self, new_cluster_name, new_user_name):
         cluster_uid = str(uuid.uuid4())[:8]
@@ -517,8 +524,8 @@ class KubeExecutor:
         self.local = LOCAL
         self.dashboard_user = os.path.join(BASE_PATH, 'dashboard-adminuser.yaml')
         self.host = self.wrapper.connection.original_host
-        self.home = os.path.join('home', get_local_user())
-        self.remote = self.wrapper.execute('echo $HOME').stdout.strip()
+        self.home = os.path.expanduser('~')
+        self.remote = self.wrapper.execute('echo $HOME', hide=True).stdout.strip()
 
     def add_local_cluster_config(
         self,
@@ -532,10 +539,10 @@ class KubeExecutor:
         remote_kube = os.path.join(self.remote, '.kube')
         local_config_base = os.path.join(local_kube, 'config')
         remote_config_base = os.path.join(remote_kube, 'config')
-        local_dump_folder = os.path.join(WORKDIR, 'dump', self.host)
-        local_dump = os.path.join(local_dump_folder, 'config.yaml')
+        local_dump_folder = os.path.join(WORKDIR, 'dump')
+        local_dump = os.path.join(local_dump_folder, self.host, 'config.yaml')
 
-        self.local.run(f'mkdir -p {local_dump_folder}')
+        self.local.run(f'mkdir -p {local_dump_folder} && mkdir -p {os.path.join(local_dump_folder, self.host)}')
         self.local.run(f'scp {self.host}:{remote_config_base} {local_dump}')
 
         remote_kube_config = KubeConfig(
@@ -643,7 +650,7 @@ class KubeExecutor:
 
     def wait_for_running_system_status(self, namespace='kube-system', remote=False, poll_interval=1):
         runner = LOCAL.run if not remote else self.wrapper.execute
-        home = runner('echo ~').stdout.strip()
+        prepend = f'HOME={self.home} ' if not remote else ''
 
         awk_table_1 = 'awk \'{print $1}\''
         awk_table_2 = 'awk \'{print $2}\''
@@ -654,15 +661,15 @@ class KubeExecutor:
         pods_not_ready = 'initial'
         while pods_not_ready:
             print(crayons.white(f'Wait for all {namespace} pods to enter "Running" phase'))
-            pods_not_ready = runner(f'HOME={home} {non_running_command}').stdout.strip()
+            pods_not_ready = runner(f'{prepend}{non_running_command}').stdout.strip()
             time.sleep(poll_interval)
         print(crayons.green(f'All {namespace} pods entered "Running" phase.'))
 
         all_complete = False
         while not all_complete:
             print(crayons.white(f'Wait for all {namespace} pods to reach "Desired" state'))
-            names_table = runner(f'HOME={home} {running_command}', hide=True).stdout.strip()
-            current_to_desired_table = runner(f'HOME={home} {running_command_current_desired}', hide=True).stdout.strip()
+            names_table = runner(f'{prepend}{running_command}', hide=True).stdout.strip()
+            current_to_desired_table = runner(f'{prepend}{running_command_current_desired}', hide=True).stdout.strip()
             clean_table = current_to_desired_table.split()[1:]
             names = names_table.split()[1:]
             complete_table = []
