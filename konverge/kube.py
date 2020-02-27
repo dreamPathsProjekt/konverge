@@ -527,6 +527,17 @@ class KubeExecutor:
         self.home = os.path.expanduser('~')
         self.remote = self.wrapper.execute('echo $HOME', hide=True).stdout.strip() if self.wrapper else None
 
+    def get_current_context(self):
+        print(crayons.cyan('Verify that the cluster and context are the correct ones'))
+        current_context = self.local.run(f'HOME={self.home} kubectl config current-context').stdout.strip()
+        self.local.run(f'HOME={self.home} kubectl config view')
+        print(crayons.cyan('Are you in the correct cluster/context ? (y/N)'))
+        context_correct = input()
+        if context_correct not in ('Y', 'y'):
+            print(crayons.yellow('Aborting Operation'))
+            return None
+        return current_context
+
     def add_local_cluster_config(
         self,
         custom_cluster_name=None,
@@ -729,4 +740,56 @@ class KubeExecutor:
         token = run(command)
         return token.stdout.strip() if token.ok else None
 
-    # TODO: Helm-Tiller install, MetalLB, Storage.
+    def helm_install_v2(self, patch=True, helm=True, tiller=True):
+        prepend = f'HOME={self.home}'
+        helm_script = 'https://git.io/get_helm.sh'
+
+        current_context = self.get_current_context()
+        if not current_context:
+            return
+
+        if helm:
+            print(crayons.cyan('Installing Helm locally'))
+            install = self.local.run(f'{prepend} curl -L {helm_script} | bash')
+            if not install.ok:
+                logging.error(crayons.red(f'Helm installation failed'))
+                return
+            self.local.run(f'echo "source <(helm completion bash)" >> {self.home}/.bashrc')
+            print(crayons.green('Helm installed locally'))
+
+        if tiller:
+            if not patch:
+                logging.warning(crayons.yellow('No-Patch (K8s versions > 1.16.*) installation is not implemented.'))
+                return
+
+            print(crayons.cyan('Bootstrapping Tiller with patch for K8s versions > 1.16.*'))
+            self.local.run(f'{prepend} kubectl --namespace kube-system create sa tiller')
+            self.local.run(
+                f'{prepend} kubectl create clusterrolebinding tiller ' +
+                '--clusterrole cluster-admin ' +
+                '--serviceaccount=kube-system:tiller'
+            )
+            bootstrap = self.local.run(
+                f"{prepend} helm init --service-account tiller " +
+                f"--override spec.selector.matchLabels.'name'='tiller',spec.selector.matchLabels.'app'='helm' " +
+                f"--output yaml | sed 's@apiVersion: extensions/v1beta1@apiVersion: apps/v1@' | {prepend} kubectl apply -f -"
+            )
+            if not bootstrap.ok:
+                logging.error(crayons.red(f'Helm initialization with Tiller failed'))
+                logging.warning(crayons.yellow('Rolling back installation'))
+                rollback = self.local.run(f'{prepend} helm reset --force --remove-helm-home')
+                if rollback.ok:
+                    print(crayons.green('Rollback completed'))
+                return
+
+            tiller_ready = ''
+            while not tiller_ready:
+                print(crayons.white('Ping for tiller ready'))
+                tiller_ready = self.local.run(f'{prepend} kubectl get pod --namespace kube-system -l app=helm,name=tiller --field-selector=status.phase=Running').stdout.strip()
+                time.sleep(1)
+            print(crayons.green(f'Helm initialized with Tiller for context: {current_context}'))
+            self.wait_for_running_system_status()
+            time.sleep(10)
+            print(crayons.magenta('You might need to run "helm init --client-only to initialize repos"'))
+
+    # TODO: MetalLB, Storage.
