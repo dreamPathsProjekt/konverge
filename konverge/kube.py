@@ -763,17 +763,7 @@ class KubeExecutor:
                 return
 
             print(crayons.cyan('Bootstrapping Tiller with patch for K8s versions > 1.16.*'))
-            self.local.run(f'{prepend} kubectl --namespace kube-system create sa tiller')
-            self.local.run(
-                f'{prepend} kubectl create clusterrolebinding tiller ' +
-                '--clusterrole cluster-admin ' +
-                '--serviceaccount=kube-system:tiller'
-            )
-            bootstrap = self.local.run(
-                f"{prepend} helm init --service-account tiller " +
-                f"--override spec.selector.matchLabels.'name'='tiller',spec.selector.matchLabels.'app'='helm' " +
-                f"--output yaml | sed 's@apiVersion: extensions/v1beta1@apiVersion: apps/v1@' | {prepend} kubectl apply -f -"
-            )
+            bootstrap = self.tiller_install_v2_patch()
             if not bootstrap.ok:
                 logging.error(crayons.red(f'Helm initialization with Tiller failed'))
                 logging.warning(crayons.yellow('Rolling back installation'))
@@ -791,5 +781,19 @@ class KubeExecutor:
             self.wait_for_running_system_status()
             time.sleep(10)
             print(crayons.magenta('You might need to run "helm init --client-only to initialize repos"'))
+
+    def tiller_install_v2_patch(self):
+        prepend = f'HOME={self.home}'
+        self.local.run(f'{prepend} kubectl --namespace kube-system create sa tiller')
+        self.local.run(
+            f'{prepend} kubectl create clusterrolebinding tiller ' +
+            '--clusterrole cluster-admin ' +
+            '--serviceaccount=kube-system:tiller'
+        )
+        return self.local.run(
+            f"{prepend} helm init --service-account tiller " +
+            f"--override spec.selector.matchLabels.'name'='tiller',spec.selector.matchLabels.'app'='helm' " +
+            f"--output yaml | sed 's@apiVersion: extensions/v1beta1@apiVersion: apps/v1@' | {prepend} kubectl apply -f -"
+        )
 
     # TODO: MetalLB, Storage.
