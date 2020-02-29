@@ -8,7 +8,7 @@ from fabric2 import Result
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
-from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL
+from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, cluster_config_client
 
 
 class LinuxPackage(NamedTuple):
@@ -796,4 +796,30 @@ class KubeExecutor:
             f"--output yaml | sed 's@apiVersion: extensions/v1beta1@apiVersion: apps/v1@' | {prepend} kubectl apply -f -"
         )
 
-    # TODO: MetalLB, Storage.
+    def metallb_install(self, file=None):
+        prepend = f'HOME={self.home}'
+        if not file:
+            metallb_range = cluster_config_client.loadbalancer_ip_range_to_string()
+            if not metallb_range:
+                logging.error(crayons.red('Could not deploy MetalLB with given cluster values.'))
+                return
+            # TODO: interface vmbr0 dynamic allocation
+            template_values = (
+                'configInline:',
+                '  address-pools:',
+                '  - name: vmbr0',
+                '    protocol: layer2',
+                '    addresses:',
+                f'    - {metallb_range}',
+                'controller:',
+                '  tolerations:',
+                '    key: node.kubernetes.io/not-ready',
+                '    operator: Exists',
+                '    tolerationSeconds: 60',
+                '  - effect: NoExecute',
+                '    key: node.kubernetes.io/unreachable',
+                '    operator: Exists',
+                '    tolerationSeconds: 60',
+            )
+
+    # TODO: Storage.

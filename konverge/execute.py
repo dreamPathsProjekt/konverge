@@ -1,6 +1,6 @@
 import time
 
-from konverge.settings import vm_client
+from konverge.settings import vm_client, cluster_config_client
 from konverge.utils import VMAttributes, Storage, FabricWrapper
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
@@ -134,9 +134,11 @@ def execute():
     # )
     # kube_executor.deploy_dashboard(local=False)
 
-    kube_executor = KubeExecutor()
-    kube_executor.unset_local_cluster_config(
-        cluster_name='test-cluster',
-        cluster={'user': 'admin-test', 'context': 'test-context'}
-    )
+    # kube_executor = KubeExecutor()
+    # kube_executor.unset_local_cluster_config(
+    #     cluster_name='test-cluster',
+    #     cluster={'user': 'admin-test', 'context': 'test-context'}
+    # )
+
+    print(cluster_config_client.get_network_base())
 
