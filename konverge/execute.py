@@ -1,7 +1,7 @@
 import time
 
 from konverge.settings import vm_client, cluster_config_client
-from konverge.utils import VMAttributes, Storage, FabricWrapper
+from konverge.utils import VMAttributes, Storage, FabricWrapper, get_kube_versions
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
 from konverge.queries import VMQuery
@@ -142,4 +142,5 @@ def execute():
 
     print(cluster_config_client.get_network_base())
     print(kube_executor.get_bridge_common_interface())
+    print(get_kube_versions())
 

@@ -18,6 +18,22 @@ KUBE_VERSION_MAP_DOCKER = {
 }
 
 
+def get_kube_versions(os_type='ubuntu', kube_major='1.16'):
+    from konverge.settings import BASE_PATH
+
+    bootstrap = os.path.join(BASE_PATH, 'bootstrap')
+    if os_type == 'ubuntu':
+        filename = os.path.join(bootstrap, 'kube_versions_ubuntu.sh')
+    else:
+        filename = os.path.join(bootstrap, 'kube_versions_centos.sh')
+    docker_major = KUBE_VERSION_MAP_DOCKER.get(kube_major)
+    local = LOCAL
+    return local.run(
+        f'chmod +x {filename} && KUBE_MAJOR_VERSION={kube_major} DOCKER_MAJOR_VERSION={docker_major} {filename}',
+        hide=True
+    ).stdout
+
+
 class Storage(Enum):
     cephfs = 'cephfs'
     cifs = 'cifs'
