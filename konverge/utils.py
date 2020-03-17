@@ -12,6 +12,12 @@ from invoke import Context
 
 LOCAL = Context(Config())
 
+KUBE_VERSION_MAP_DOCKER = {
+    '1.16': '18.09',
+    '1.17': '19.03'
+}
+
+
 class Storage(Enum):
     cephfs = 'cephfs'
     cifs = 'cifs'

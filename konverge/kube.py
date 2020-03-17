@@ -809,7 +809,7 @@ class KubeExecutor:
         common = set.intersection(set(map_nodes_to_ifaces.values()))
         return common.pop() if common else None
 
-    def metallb_install(self, file=None, version='0.12.0', interface='vmbr0'):
+    def metallb_install(self, file='', version='0.12.0', interface='vmbr0'):
         prepend = f'HOME={self.home}'
         if not file:
             values_file = 'values.yaml'
