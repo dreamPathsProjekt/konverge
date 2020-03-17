@@ -63,6 +63,7 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         else:
             self.vm_attributes.description = f'Kubernetes node {self.vm_attributes.name}'
 
+    # TODO: Add loadbalancer range to allocated set if exists.
     def generate_vmid_and_username(self, id_prefix):
         start = int(f'{id_prefix}01')
         end = int(f'{id_prefix + 1}00')
