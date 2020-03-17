@@ -834,6 +834,7 @@ class KubeExecutor:
                 f'    - {metallb_range}',
                 'controller:',
                 '  tolerations:',
+                '  - effect: NoExecute',
                 '    key: node.kubernetes.io/not-ready',
                 '    operator: Exists',
                 '    tolerationSeconds: 60',
