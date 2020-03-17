@@ -134,11 +134,12 @@ def execute():
     # )
     # kube_executor.deploy_dashboard(local=False)
 
-    # kube_executor = KubeExecutor()
+    kube_executor = KubeExecutor()
     # kube_executor.unset_local_cluster_config(
     #     cluster_name='test-cluster',
     #     cluster={'user': 'admin-test', 'context': 'test-context'}
     # )
 
     print(cluster_config_client.get_network_base())
+    print(kube_executor.get_bridge_common_interface())
 
