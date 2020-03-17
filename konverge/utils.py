@@ -12,13 +12,20 @@ from invoke import Context
 
 LOCAL = Context(Config())
 
-KUBE_VERSION_MAP_DOCKER = {
+KUBE_VERSION_MAP_DOCKER_CE = {
+    '1.15': '18.06',
     '1.16': '18.09',
     '1.17': '19.03'
 }
 
+KUBE_VERSION_MAP_DOCKER_IO = {
+    '1.15': '18.09',
+    '1.16': '18.09',
+    '1.17': '18.09'
+}
 
-def get_kube_versions(os_type='ubuntu', kube_major='1.16'):
+
+def get_kube_versions(os_type='ubuntu', kube_major='1.16', docker_ce=False):
     from konverge.settings import BASE_PATH
 
     bootstrap = os.path.join(BASE_PATH, 'bootstrap')
@@ -26,7 +33,7 @@ def get_kube_versions(os_type='ubuntu', kube_major='1.16'):
         filename = os.path.join(bootstrap, 'kube_versions_ubuntu.sh')
     else:
         filename = os.path.join(bootstrap, 'kube_versions_centos.sh')
-    docker_major = KUBE_VERSION_MAP_DOCKER.get(kube_major)
+    docker_major = KUBE_VERSION_MAP_DOCKER_CE.get(kube_major) if docker_ce else KUBE_VERSION_MAP_DOCKER_IO.get(kube_major)
     local = LOCAL
     return local.run(
         f'chmod +x {filename} && KUBE_MAJOR_VERSION={kube_major} DOCKER_MAJOR_VERSION={docker_major} {filename}',

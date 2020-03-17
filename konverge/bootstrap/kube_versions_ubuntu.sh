@@ -12,6 +12,10 @@ echo "=== kubectl ==="
 apt-cache madison kubectl | grep "${KUBE_MAJOR_VERSION}"
 echo ""
 
+echo "=== docker.io ==="
+apt-cache madison docker.io | grep "${DOCKER_MAJOR_VERSION}"
+echo ""
+
 echo "=== docker-ce ==="
 apt-cache madison docker-ce | grep "${DOCKER_MAJOR_VERSION}"
 echo ""
