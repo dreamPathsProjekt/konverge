@@ -142,5 +142,5 @@ def execute():
 
     print(cluster_config_client.get_network_base())
     print(kube_executor.get_bridge_common_interface())
-    print(get_kube_versions())
+    print(get_kube_versions(kube_major='1.17'))
 
