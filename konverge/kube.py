@@ -8,7 +8,7 @@ from fabric2 import Result
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
-from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL
+from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, cluster_config_client, vm_client
 
 
 class LinuxPackage(NamedTuple):
@@ -527,6 +527,17 @@ class KubeExecutor:
         self.home = os.path.expanduser('~')
         self.remote = self.wrapper.execute('echo $HOME', hide=True).stdout.strip() if self.wrapper else None
 
+    def get_current_context(self):
+        print(crayons.cyan('Verify that the cluster and context are the correct ones'))
+        current_context = self.local.run(f'HOME={self.home} kubectl config current-context').stdout.strip()
+        self.local.run(f'HOME={self.home} kubectl config view')
+        print(crayons.cyan('Are you in the correct cluster/context ? (y/N)'))
+        context_correct = input()
+        if context_correct not in ('Y', 'y'):
+            print(crayons.yellow('Aborting Operation'))
+            return None
+        return current_context
+
     def add_local_cluster_config(
         self,
         custom_cluster_name=None,
@@ -729,4 +740,137 @@ class KubeExecutor:
         token = run(command)
         return token.stdout.strip() if token.ok else None
 
-    # TODO: Helm-Tiller install, MetalLB, Storage.
+    def helm_install_v2(self, patch=True, helm=True, tiller=True):
+        prepend = f'HOME={self.home}'
+        helm_script = 'https://git.io/get_helm.sh'
+
+        current_context = self.get_current_context()
+        if not current_context:
+            return
+
+        if helm:
+            print(crayons.cyan('Installing Helm locally'))
+            install = self.local.run(f'{prepend} curl -L {helm_script} | bash')
+            if not install.ok:
+                logging.error(crayons.red(f'Helm installation failed'))
+                return
+            self.local.run(f'echo "source <(helm completion bash)" >> {self.home}/.bashrc')
+            print(crayons.green('Helm installed locally'))
+
+        if tiller:
+            if not patch:
+                logging.warning(crayons.yellow('No-Patch (K8s versions > 1.16.*) installation is not implemented.'))
+                return
+
+            print(crayons.cyan('Bootstrapping Tiller with patch for K8s versions > 1.16.*'))
+            bootstrap = self.tiller_install_v2_patch()
+            if not bootstrap.ok:
+                logging.error(crayons.red(f'Helm initialization with Tiller failed'))
+                logging.warning(crayons.yellow('Rolling back installation'))
+                rollback = self.local.run(f'{prepend} helm reset --force --remove-helm-home')
+                if rollback.ok:
+                    print(crayons.green('Rollback completed'))
+                return
+
+            tiller_ready = ''
+            while not tiller_ready:
+                print(crayons.white('Ping for tiller ready'))
+                tiller_ready = self.local.run(f'{prepend} kubectl get pod --namespace kube-system -l app=helm,name=tiller --field-selector=status.phase=Running').stdout.strip()
+                time.sleep(1)
+            print(crayons.green(f'Helm initialized with Tiller for context: {current_context}'))
+            self.wait_for_running_system_status()
+            time.sleep(10)
+            print(crayons.magenta('You might need to run "helm init --client-only to initialize repos"'))
+
+    def tiller_install_v2_patch(self):
+        prepend = f'HOME={self.home}'
+        self.local.run(f'{prepend} kubectl --namespace kube-system create sa tiller')
+        self.local.run(
+            f'{prepend} kubectl create clusterrolebinding tiller ' +
+            '--clusterrole cluster-admin ' +
+            '--serviceaccount=kube-system:tiller'
+        )
+        return self.local.run(
+            f"{prepend} helm init --service-account tiller " +
+            f"--override spec.selector.matchLabels.'name'='tiller',spec.selector.matchLabels.'app'='helm' " +
+            f"--output yaml | sed 's@apiVersion: extensions/v1beta1@apiVersion: apps/v1@' | {prepend} kubectl apply -f -"
+        )
+
+    @staticmethod
+    def get_bridge_common_interface(interface='vmbr0'):
+        map_nodes_to_ifaces = {}
+        nodes = cluster_config_client.get_nodes()
+        for node in nodes:
+            interfaces = vm_client.get_cluster_node_bridge_interfaces(node=node.name)
+            for iface in interfaces:
+                candidate = iface.get('name')
+                if interface in candidate:
+                    map_nodes_to_ifaces[node.name] = candidate
+        common = set.intersection(set(map_nodes_to_ifaces.values()))
+        return common.pop() if common else None
+
+    def metallb_install(self, file='', version='0.12.0', interface='vmbr0'):
+        prepend = f'HOME={self.home}'
+        if not file:
+            values_file = 'values.yaml'
+            local_workdir = os.path.join(WORKDIR, '.metallb')
+            local_values_path = os.path.join(local_workdir, values_file)
+
+            metallb_range = cluster_config_client.loadbalancer_ip_range_to_string_or_list()
+            if not metallb_range:
+                logging.error(crayons.red('Could not deploy MetalLB with given cluster values.'))
+                return
+            common_iface = self.get_bridge_common_interface(interface)
+            if not common_iface:
+                logging.error(crayons.red(f'Interface {interface} not found as common bridge in PVE Cluster nodes.'))
+                return
+
+            template_values = (
+                'configInline:',
+                '  address-pools:',
+                f'  - name: {common_iface}',
+                '    protocol: layer2',
+                '    addresses:',
+                f'    - {metallb_range}',
+                'controller:',
+                '  tolerations:',
+                '  - effect: NoExecute',
+                '    key: node.kubernetes.io/not-ready',
+                '    operator: Exists',
+                '    tolerationSeconds: 60',
+                '  - effect: NoExecute',
+                '    key: node.kubernetes.io/unreachable',
+                '    operator: Exists',
+                '    tolerationSeconds: 60',
+            )
+
+            self.local.run(f'mkdir -p {local_workdir}')
+            _, file, error = KubeProvisioner.write_config_to_file(
+                file=values_file,
+                local_file_path=local_values_path,
+                script_body=template_values
+            )
+            if error:
+                # Logging executes in write_config_to_file
+                return
+
+        if not self.helm_exists(prepend):
+            return
+
+        print(crayons.cyan(f'Deploying MetalLB'))
+        metal_install = self.local.run(f'{prepend} helm install --name metallb -f {file} stable/metallb --version={version}')
+        if metal_install.failed:
+            logging.error(crayons.red('MetalLB installation failed.Rolling Back'))
+            rollback = self.local.run('helm delete metallb --purge')
+            if rollback.ok:
+                print(crayons.green('Rollback completed'))
+                return
+        print(crayons.green('MetalLB installed'))
+
+    def helm_exists(self, command_prefix):
+        exit_code = self.local.run(f'{command_prefix} helm version ; echo $?').stdout.split()[-1].strip()
+        if exit_code != '0':
+            logging.warning(crayons.yellow('"helm" not found on your system. Please run helm-install first'))
+        return exit_code == '0'
+
+    # TODO: Storage.

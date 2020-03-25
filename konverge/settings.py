@@ -7,7 +7,7 @@ import crayons
 
 from konverge.pve import ProxmoxAPIClient
 from konverge.pvecluster import ProxmoxClusterConfigFile, ClusterConfig
-# from konverge.utils import FabricWrapper
+
 
 BASE_PATH = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 WORKDIR = os.path.abspath(subprocess.check_output('pwd', universal_newlines=True).strip())
@@ -18,6 +18,7 @@ CNI = {
     'weave': "\"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')&env.NO_MASQ_LOCAL=1\"",
     'weave-default': "\"https://cloud.weave.works/k8s/net?k8s-version=$(kubectl version | base64 | tr -d '\n')\""
 }
+
 KUBE_DASHBOARD_URL = 'https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta4/aio/deploy/recommended.yaml'
 
 
