@@ -72,3 +72,6 @@ PROXMOX_CLUSTER_SCHEMA = {
     },
     'required': ['name', 'nodes', 'network']
 }
+
+
+KUBE_CLUSTER_SCHEMA = {}

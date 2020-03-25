@@ -75,6 +75,10 @@ topology.json
 .vscode/
 .dockerconfigjson
 
-# Proxmox cluster config
+# Proxmox - K8s cluster config
 .cluster.yml
 .cluster.yaml
+.pve.yml
+.pve.yaml
+.proxmox.yml
+.proxmox.yaml
