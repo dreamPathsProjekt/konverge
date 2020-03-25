@@ -79,6 +79,12 @@ class KubeClusterConfigFile(GenericConfigFile):
     schema = KUBE_CLUSTER_SCHEMA
     filenames = '.cluster.yaml', '.cluster.yml'
 
+    def serialize(self):
+        if not self.config:
+            logging.error(crayons.red(f'No serialized object generated from {self.filename}'))
+            return None
+        return self.validate()
+
 
 class ConfigSerializer:
     name: str

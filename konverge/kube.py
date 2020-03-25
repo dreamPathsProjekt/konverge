@@ -24,10 +24,10 @@ class ControlPlaneDefinitions:
         apiserver_ip: str = '',
         apiserver_port: int = 6443,
     ):
-        self.ha_masters = ha_masters
-        self.networking = networking
-        self.apiserver_ip = apiserver_ip
-        self.apiserver_port = apiserver_port
+        self.ha_masters = ha_masters if ha_masters is not None else False
+        self.networking = networking if networking else 'weave'
+        self.apiserver_ip = apiserver_ip if apiserver_ip else None
+        self.apiserver_port = apiserver_port if apiserver_port else 6443
 
 
 class CNIDefinitions(NamedTuple):

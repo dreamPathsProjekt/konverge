@@ -2,12 +2,15 @@ import logging
 import os
 import math
 from enum import Enum
+from functools import singledispatch
+from typing import Union
 
 import crayons
-
 from fabric2 import Connection, Config
 from fabric2.util import get_local_user
 from invoke import Context
+
+from konverge.files import ConfigSerializer
 
 
 LOCAL = Context(Config())
@@ -39,6 +42,21 @@ def get_kube_versions(os_type='ubuntu', kube_major='1.16', docker_ce=False):
         f'chmod +x {filename} && KUBE_MAJOR_VERSION={kube_major} DOCKER_MAJOR_VERSION={docker_major} {filename}',
         hide=True
     ).stdout
+
+
+@singledispatch
+def get_attributes_exist(attributes, resource: ConfigSerializer):
+    return [attribute for attribute in attributes if hasattr(resource, attribute)]
+
+
+@get_attributes_exist.register
+def _(attributes: str, resource: ConfigSerializer):
+    return [attributes] if hasattr(resource, attributes) else []
+
+
+@get_attributes_exist.register
+def _(attributes: Union[tuple, list], resource: ConfigSerializer):
+    return [attribute for attribute in attributes if hasattr(resource, attribute)]
 
 
 class Storage(Enum):

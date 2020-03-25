@@ -33,6 +33,7 @@ try:
 except Exception as import_error:
     logging.error(crayons.red(import_error))
 
+
 VMAPIClientFactory = ProxmoxAPIClient.api_client_factory(instance_type='vm')
 vm_client = VMAPIClientFactory(
     host=os.getenv('PROXMOX_HOST'),
