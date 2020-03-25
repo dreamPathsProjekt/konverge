@@ -81,12 +81,15 @@ class CommonVMMixin:
 
     def generate_allowed_ip(self):
         network = settings.cluster_config_client.get_network_base()
+        loadbalancer = settings.cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False)
         start, end = settings.cluster_config_client.get_allowed_range()
         allocated = settings.cluster_config_client.get_allocated_ips_from_config(namefilter=self.vm_attributes.node)
         # Arp-scan
         allocated.update(self.get_allocated_ips_per_node_interface())
         # Cloudinit allocated, includes stopped vms.
         allocated.update(self.client.get_all_vm_allocated_ips_all_nodes())
+        # Include lb range if exists.
+        allocated.update(loadbalancer)
         print(crayons.white(f'All allocated ips: {allocated}'))
 
         for subnet_ip in range(start, end):

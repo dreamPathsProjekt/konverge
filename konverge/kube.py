@@ -8,7 +8,7 @@ from fabric2 import Result
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
-from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL
+from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, cluster_config_client, vm_client
 
 
 class LinuxPackage(NamedTuple):
@@ -796,4 +796,81 @@ class KubeExecutor:
             f"--output yaml | sed 's@apiVersion: extensions/v1beta1@apiVersion: apps/v1@' | {prepend} kubectl apply -f -"
         )
 
-    # TODO: MetalLB, Storage.
+    @staticmethod
+    def get_bridge_common_interface(interface='vmbr0'):
+        map_nodes_to_ifaces = {}
+        nodes = cluster_config_client.get_nodes()
+        for node in nodes:
+            interfaces = vm_client.get_cluster_node_bridge_interfaces(node=node.name)
+            for iface in interfaces:
+                candidate = iface.get('name')
+                if interface in candidate:
+                    map_nodes_to_ifaces[node.name] = candidate
+        common = set.intersection(set(map_nodes_to_ifaces.values()))
+        return common.pop() if common else None
+
+    def metallb_install(self, file='', version='0.12.0', interface='vmbr0'):
+        prepend = f'HOME={self.home}'
+        if not file:
+            values_file = 'values.yaml'
+            local_workdir = os.path.join(WORKDIR, '.metallb')
+            local_values_path = os.path.join(local_workdir, values_file)
+
+            metallb_range = cluster_config_client.loadbalancer_ip_range_to_string_or_list()
+            if not metallb_range:
+                logging.error(crayons.red('Could not deploy MetalLB with given cluster values.'))
+                return
+            common_iface = self.get_bridge_common_interface(interface)
+            if not common_iface:
+                logging.error(crayons.red(f'Interface {interface} not found as common bridge in PVE Cluster nodes.'))
+                return
+
+            template_values = (
+                'configInline:',
+                '  address-pools:',
+                f'  - name: {common_iface}',
+                '    protocol: layer2',
+                '    addresses:',
+                f'    - {metallb_range}',
+                'controller:',
+                '  tolerations:',
+                '  - effect: NoExecute',
+                '    key: node.kubernetes.io/not-ready',
+                '    operator: Exists',
+                '    tolerationSeconds: 60',
+                '  - effect: NoExecute',
+                '    key: node.kubernetes.io/unreachable',
+                '    operator: Exists',
+                '    tolerationSeconds: 60',
+            )
+
+            self.local.run(f'mkdir -p {local_workdir}')
+            _, file, error = KubeProvisioner.write_config_to_file(
+                file=values_file,
+                local_file_path=local_values_path,
+                script_body=template_values
+            )
+            if error:
+                # Logging executes in write_config_to_file
+                return
+
+        if not self.helm_exists(prepend):
+            return
+
+        print(crayons.cyan(f'Deploying MetalLB'))
+        metal_install = self.local.run(f'{prepend} helm install --name metallb -f {file} stable/metallb --version={version}')
+        if metal_install.failed:
+            logging.error(crayons.red('MetalLB installation failed.Rolling Back'))
+            rollback = self.local.run('helm delete metallb --purge')
+            if rollback.ok:
+                print(crayons.green('Rollback completed'))
+                return
+        print(crayons.green('MetalLB installed'))
+
+    def helm_exists(self, command_prefix):
+        exit_code = self.local.run(f'{command_prefix} helm version ; echo $?').stdout.split()[-1].strip()
+        if exit_code != '0':
+            logging.warning(crayons.yellow('"helm" not found on your system. Please run helm-install first'))
+        return exit_code == '0'
+
+    # TODO: Storage.

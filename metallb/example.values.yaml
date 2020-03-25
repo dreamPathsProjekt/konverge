@@ -1,0 +1,32 @@
+configInline:
+#  peers:
+#  - peer-address: 10.0.0.1
+#    peer-asn: 64512
+#    my-asn: 64512
+#  address-pools:
+#  - name: default
+#    protocol: bgp
+#    addresses:
+#    - 10.0.10.200/24
+  address-pools:
+  - name: vmbr0
+    protocol: layer2
+    addresses:
+    - 10.0.10.241-10.0.10.254
+
+controller:
+  tolerations:
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 60
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 60
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: node-role.kubernetes.io/rolelabel
+            operator: DoesNotExist

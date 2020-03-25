@@ -3,6 +3,7 @@ Classes and functions for proxmox cluster-wide config.
 """
 import logging
 import crayons
+import ipaddress
 
 from konverge.files import ProxmoxClusterConfigFile, ConfigSerializer
 from konverge.utils import FabricWrapper
@@ -56,12 +57,34 @@ class ClusterConfig:
         for node in self.get_nodes(namefilter):
             attributes_exist = self.get_existing_node_attributes(node=node)
             if 'ip' in attributes_exist:
-                node_ips.append(node.ip)
+                try:
+                    ip = ipaddress.ip_address(node.ip)
+                except ValueError as not_address:
+                    logging.error(crayons.red(not_address))
+                    continue
+                node_ips.append(str(ip))
         return node_ips
 
     def get_network_base(self):
         if hasattr(self.cluster.network, 'base'):
-            return self.cluster.network.base
+            base = self.cluster.network.base
+            network = None
+            address = None
+            try:
+                network = ipaddress.ip_network(base)
+            except ValueError as not_network:
+                logging.warning(crayons.yellow(not_network))
+                try:
+                    address = ipaddress.ip_address(base)
+                except ValueError as not_address:
+                    logging.error(crayons.red(not_address))
+                    return None
+            if network:
+                address = network.network_address
+            if address:
+                addr_list = str(address).split('.')
+                addr_list.pop(-1)
+                return '.'.join(addr_list)
         return None
 
     def get_allocated_ips_from_config(self, namefilter=None):
@@ -85,6 +108,19 @@ class ClusterConfig:
         if hasattr(self.cluster.network, 'loadbalancer_range'):
             return self.cluster.network.loadbalancer_range.start, self.cluster.network.loadbalancer_range.end
         return 6, 254
+
+    def loadbalancer_ip_range_to_string_or_list(self, dash=True):
+        start, end = self.get_loadbalancer_range()
+        base = self.get_network_base()
+        if not base:
+            logging.error(crayons.red('Base Network not found'))
+            return None
+        if dash:
+            return f'{base}.{start}-{base}.{end}'
+        ip_addresses = []
+        for suffix in range(start, end + 1):
+            ip_addresses.append(str(ipaddress.ip_address(f'{base}.{suffix}')))
+        return  ip_addresses
 
     def get_proxmox_ssh_connection_objects(self, namefilter=None):
         connections = []
