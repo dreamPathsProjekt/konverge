@@ -109,13 +109,18 @@ class ClusterConfig:
             return self.cluster.network.loadbalancer_range.start, self.cluster.network.loadbalancer_range.end
         return 6, 254
 
-    def loadbalancer_ip_range_to_string(self):
+    def loadbalancer_ip_range_to_string_or_list(self, dash=True):
         start, end = self.get_loadbalancer_range()
         base = self.get_network_base()
         if not base:
             logging.error(crayons.red('Base Network not found'))
             return None
-        return f'{base}.{start}-{base}.{end}'
+        if dash:
+            return f'{base}.{start}-{base}.{end}'
+        ip_addresses = []
+        for suffix in range(start, end + 1):
+            ip_addresses.append(str(ipaddress.ip_address(f'{base}.{suffix}')))
+        return  ip_addresses
 
     def get_proxmox_ssh_connection_objects(self, namefilter=None):
         connections = []

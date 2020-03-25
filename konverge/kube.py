@@ -816,7 +816,7 @@ class KubeExecutor:
             local_workdir = os.path.join(WORKDIR, '.metallb')
             local_values_path = os.path.join(local_workdir, values_file)
 
-            metallb_range = cluster_config_client.loadbalancer_ip_range_to_string()
+            metallb_range = cluster_config_client.loadbalancer_ip_range_to_string_or_list()
             if not metallb_range:
                 logging.error(crayons.red('Could not deploy MetalLB with given cluster values.'))
                 return

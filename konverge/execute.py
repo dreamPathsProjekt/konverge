@@ -139,7 +139,7 @@ def execute():
     #     cluster_name='test-cluster',
     #     cluster={'user': 'admin-test', 'context': 'test-context'}
     # )
-
+    print(cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False))
     print(cluster_config_client.get_network_base())
     print(kube_executor.get_bridge_common_interface())
     print(get_kube_versions(kube_major='1.16'))
