@@ -1,11 +1,13 @@
 import time
 
-from konverge.settings import vm_client, cluster_config_client, kube_config_client
+from konverge.settings import vm_client
 from konverge.utils import VMAttributes, Storage, FabricWrapper, get_kube_versions
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
 from konverge.queries import VMQuery
 from konverge.kube import KubeProvisioner, ControlPlaneDefinitions, KubeExecutor
+from konverge.kubecluster import KubeCluster
+from konverge.files import KubeClusterConfigFile
 
 def execute():
     proxmox_node = FabricWrapper(host='vhost3.proxmox')
@@ -139,9 +141,12 @@ def execute():
     #     cluster_name='test-cluster',
     #     cluster={'user': 'admin-test', 'context': 'test-context'}
     # )
-    print(cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False))
-    print(cluster_config_client.get_network_base())
+    # print(cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False))
+    # print(cluster_config_client.get_network_base())
     print(kube_executor.get_bridge_common_interface())
     # print(get_kube_versions(kube_major='1.16'))
-    print(kube_config_client.cluster.workers)
+    kube_config = KubeClusterConfigFile().serialize()
+    kube_config_client = KubeCluster(kube_config)
+    if kube_config_client:
+        print(vars(kube_config_client.control_plane))
 

@@ -1,12 +1,9 @@
-from konverge.files import KubeClusterConfigFile
 from konverge.kube import ControlPlaneDefinitions
 
 
 class KubeCluster:
-    def __init__(self, cluster_config: KubeClusterConfigFile):
-        self.cluster_config = cluster_config.serialize()
-        assert self.cluster_config is not None
-
+    def __init__(self, cluster_config: dict):
+        self.cluster_config = cluster_config
         self.name = self.cluster_config.get('name')
         self.control_plane = self._serialize_control_plane()
 

@@ -7,7 +7,7 @@ import crayons
 
 from konverge.pve import ProxmoxAPIClient
 from konverge.pvecluster import ProxmoxClusterConfigFile, ClusterConfig
-from konverge.kubecluster import KubeClusterConfigFile, KubeCluster
+# from konverge.kubecluster import KubeClusterConfigFile, KubeCluster
 
 
 BASE_PATH = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
@@ -27,8 +27,8 @@ try:
     # TODO read from file if provided
     cluster_config = ProxmoxClusterConfigFile()
     cluster_config_client = ClusterConfig(cluster_config)
-    kube_config = KubeClusterConfigFile()
-    kube_config_client = KubeCluster(kube_config)
+    # kube_config = KubeClusterConfigFile()
+    # kube_config_client = KubeCluster(kube_config)
     node_scale = len(cluster_config_client.get_nodes())
 except Exception as import_error:
     logging.error(crayons.red(import_error))
