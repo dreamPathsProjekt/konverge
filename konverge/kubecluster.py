@@ -186,10 +186,13 @@ class KubeCluster:
 
         vms = []
         for vm_attributes in vm_attributes_list:
+            template = templates.get(vm_attributes.node)
+            # Inherit template instance storage type.
+            vm_attributes.storage_type = template.vm_attributes.storage_type
             clone = InstanceClone(
                 vm_attributes=vm_attributes,
                 client=settings.vm_client,
-                template=templates.get(vm_attributes.node),
+                template=template,
                 username=username
             )
             if hotplug_disk:
