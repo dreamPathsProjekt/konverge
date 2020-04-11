@@ -59,7 +59,18 @@ def _(attributes: Union[tuple, list], resource: ConfigSerializer):
     return [attribute for attribute in attributes if hasattr(resource, attribute)]
 
 
-class Storage(Enum):
+class EnumCommon(Enum):
+    @classmethod
+    def has_value(cls, value):
+        return value in cls._value2member_map_
+
+    @classmethod
+    def return_value(cls, value):
+        if cls.has_value(value):
+            return getattr(cls, value)
+
+
+class Storage(EnumCommon):
     cephfs = 'cephfs'
     cifs = 'cifs'
     dir = 'dir'
@@ -76,15 +87,6 @@ class Storage(Enum):
     zfs = 'zfs'
     zfspool = 'zfspool'
 
-    @classmethod
-    def has_value(cls, value):
-        return value in cls._value2member_map_
-
-    @classmethod
-    def return_value(cls, value):
-        if cls.has_value(value):
-            return getattr(cls, value)
-
 
 class BootMedia(Enum):
     floppy = 'a'
@@ -97,6 +99,17 @@ class BackupMode(Enum):
     stop = 'stop'
     snapshot = 'snapshot'
     suspend = 'suspend'
+
+
+class KubeStorage(EnumCommon):
+    rook = 'rook'
+    glusterfs = 'glusterfs'
+    nfs = 'nfs'
+
+
+class HelmVersion(EnumCommon):
+    v2 = 'v2'
+    v3 = 'v3'
 
 
 class VMAttributes:
