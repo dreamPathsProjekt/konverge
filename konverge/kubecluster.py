@@ -7,6 +7,7 @@ from konverge.utils import KubeStorage, HelmVersion, VMCategory, VMAttributes, S
 from konverge.kube import ControlPlaneDefinitions
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
+from konverge.queries import VMQuery
 
 
 class HelmAtrributes(NamedTuple):
@@ -111,6 +112,7 @@ class KubeCluster:
 
     def get_template_vms(self):
         # TODO: Support preinstall option as argument
+        # TODO: Use VMQuery to get PVE nodes templates instead of factory, when create is false.
         create = self.cluster_config.get(VMCategory.template.value).get('create')
         if create is None:
             create = True
