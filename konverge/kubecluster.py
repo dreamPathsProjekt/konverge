@@ -22,7 +22,6 @@ class ClusterAttributes(NamedTuple):
 class KubeCluster:
     def __init__(self, cluster_config: dict):
         self.cluster_config = cluster_config
-        self.name = self.cluster_config.get('name')
         self.control_plane = self._serialize_control_plane()
         self.cluster_attributes =self._serialize_cluster_attributes()
 
@@ -31,6 +30,7 @@ class KubeCluster:
         context = self.cluster_config.get('context')
         storage = KubeStorage.return_value(self.cluster_config.get('storage'))
         loadbalancer = self.cluster_config.get('loadbalancer') or True
+
         helm_attributes = self.cluster_config.get('helm')
         if not helm_attributes:
             helm = HelmAtrributes()
@@ -43,6 +43,7 @@ class KubeCluster:
                 local=local,
                 tiller=tiller
             )
+
         return ClusterAttributes(
             name=self.cluster_config.get('name'),
             pool=self.cluster_config.get('pool'),
