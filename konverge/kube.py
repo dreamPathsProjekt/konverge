@@ -9,6 +9,7 @@ from fabric2 import Result
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
 from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, cluster_config_client, vm_client
+from konverge.kubecluster import KubeCluster
 
 
 class LinuxPackage(NamedTuple):
@@ -650,10 +651,10 @@ class KubeExecutor:
             self.local.run(f'mv {local_config_base}.bak {local_config_base}')
             print(crayons.green('Rollback complete'))
 
-    # TODO: Refactor signature to accept KubeCluster instance type instead of cluster_name and cluster
-    def unset_local_cluster_config(self, cluster_name: str, cluster: dict):
-        user = cluster.get('user')
-        context = cluster.get('context')
+    def unset_local_cluster_config(self, kube_cluster: KubeCluster):
+        cluster_name = kube_cluster.cluster_attributes.name
+        user = kube_cluster.cluster_attributes.user
+        context = kube_cluster.cluster_attributes.context
         self.local.run(f'HOME={self.home} kubectl config use-context {context}')
         self.local.run(f'HOME={self.home} kubectl config delete-cluster {cluster_name}')
         self.local.run(f'HOME={self.home} kubectl config delete-context {context}')
@@ -672,15 +673,15 @@ class KubeExecutor:
         pods_not_ready = 'initial'
         while pods_not_ready:
             print(crayons.white(f'Wait for all {namespace} pods to enter "Running" phase'))
-            pods_not_ready = runner(f'{prepend}{non_running_command}').stdout.strip()
+            pods_not_ready = runner(command=f'{prepend}{non_running_command}').stdout.strip()
             time.sleep(poll_interval)
         print(crayons.green(f'All {namespace} pods entered "Running" phase.'))
 
         all_complete = False
         while not all_complete:
             print(crayons.white(f'Wait for all {namespace} pods to reach "Desired" state'))
-            names_table = runner(f'{prepend}{running_command}', hide=True).stdout.strip()
-            current_to_desired_table = runner(f'{prepend}{running_command_current_desired}', hide=True).stdout.strip()
+            names_table = runner(command=f'{prepend}{running_command}', hide=True).stdout.strip()
+            current_to_desired_table = runner(command=f'{prepend}{running_command_current_desired}', hide=True).stdout.strip()
             clean_table = current_to_desired_table.split()[1:]
             names = names_table.split()[1:]
             complete_table = []
@@ -717,13 +718,13 @@ class KubeExecutor:
         user_creation = f'{bootstrap_path}/dashboard-adminuser.yaml'
 
         print(crayons.cyan('Deploying Dashboard'))
-        dashboard = run(f'{prepend}kubectl apply -f {KUBE_DASHBOARD_URL}')
+        dashboard = run(command=f'{prepend}kubectl apply -f {KUBE_DASHBOARD_URL}')
         if dashboard.ok:
             print(crayons.green(f'Kubernetes Dashboard deployed successfully.'))
             print(crayons.cyan('Deploying User admin-user with role-binding: cluster-admin'))
             time.sleep(30)
 
-            user_role = run(f'{prepend}kubectl apply -f {user_creation}')
+            user_role = run(command=f'{prepend}kubectl apply -f {user_creation}')
             if user_role.ok:
                 print(crayons.green(f'User admin-user created successfully.'))
             else:
@@ -737,7 +738,7 @@ class KubeExecutor:
         awk_routine = "'{print $1}'"
         command = f"{prepend}kubectl -n kubernetes-dashboard describe secret $({prepend}kubectl -n kubernetes-dashboard get secret | grep {user} | awk {awk_routine})"
         print(crayons.white(command))
-        token = run(command)
+        token = run(command=command)
         return token.stdout.strip() if token.ok else None
 
     def helm_install_v2(self, patch=True, helm=True, tiller=True):
