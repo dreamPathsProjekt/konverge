@@ -3,14 +3,16 @@ import time
 import uuid
 import yaml
 
-from typing import NamedTuple
+from typing import NamedTuple, TYPE_CHECKING
 from fabric2 import Result
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
 from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, cluster_config_client, vm_client
-from konverge.kubecluster import KubeCluster
 
+# Avoid cyclic import
+if TYPE_CHECKING:
+    from konverge.kubecluster import KubeCluster
 
 class LinuxPackage(NamedTuple):
     command: str
@@ -651,7 +653,8 @@ class KubeExecutor:
             self.local.run(f'mv {local_config_base}.bak {local_config_base}')
             print(crayons.green('Rollback complete'))
 
-    def unset_local_cluster_config(self, kube_cluster: KubeCluster):
+    # Use str type annotation for kube_cluster, to avoid cyclic import.
+    def unset_local_cluster_config(self, kube_cluster: 'KubeCluster'):
         cluster_name = kube_cluster.cluster_attributes.name
         user = kube_cluster.cluster_attributes.user
         context = kube_cluster.cluster_attributes.context

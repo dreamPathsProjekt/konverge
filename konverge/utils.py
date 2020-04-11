@@ -112,6 +112,12 @@ class HelmVersion(EnumCommon):
     v3 = 'v3'
 
 
+class VMCategory(EnumCommon):
+    template = 'template'
+    masters = 'masters'
+    workers = 'workers'
+
+
 class VMAttributes:
     def __init__(
             self,
