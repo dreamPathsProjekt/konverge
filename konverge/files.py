@@ -4,7 +4,7 @@ from functools import singledispatch
 
 import crayons
 import yaml
-from jsonschema import ValidationError, validate
+from jsonschema import ValidationError, validate, FormatChecker
 
 from konverge.schema import PROXMOX_CLUSTER_SCHEMA, KUBE_CLUSTER_SCHEMA
 
@@ -56,7 +56,7 @@ class GenericConfigFile:
             logging.error(crayons.red(f'No serialized object generated from {self.filename}'))
             return None
         try:
-            validate(instance=self.config, schema=self.schema)
+            validate(instance=self.config, schema=self.schema, format_checker=FormatChecker())
         except ValidationError as validation_failed:
             logging.error(crayons.red(f'{self.filename} invalid: {validation_failed}'))
             return None
