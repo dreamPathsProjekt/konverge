@@ -149,7 +149,6 @@ def execute():
     kube_config_client = KubeCluster(kube_config)
     if kube_config_client:
         print(vars(kube_config_client.control_plane))
-        print(type(kube_config_client.cluster_attributes.storage))
         print(kube_config_client.cluster_attributes)
     kube_config_client.get_cluster()
 

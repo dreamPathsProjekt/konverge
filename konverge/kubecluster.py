@@ -83,20 +83,23 @@ class KubeCluster:
 
     def get_cluster(self):
         templates = self.get_template_vms()
+
+        if not templates:
+            print(templates)
+            return
+        if not any(templates.values()):
+            print(templates)
+            return
         masters = self.get_masters_vms(templates)
         workers = self.get_workers_vms(templates)
 
         # Debug only & during execute/plan
         for key, value in templates.items():
-            if key == 'create':
-                print(crayons.cyan(key))
-                print(value)
-            else:
-                print(crayons.cyan(key))
-                print(crayons.yellow(value.vm_attributes.name))
-                print(crayons.green(value.vm_attributes.description))
-                print(vars(value))
-                print(value.proxmox_node.connection.original_host)
+            print(crayons.cyan(key))
+            print(crayons.yellow(value.vm_attributes.name))
+            print(crayons.green(value.vm_attributes.description))
+            print(vars(value))
+            print(value.proxmox_node.connection.original_host)
 
         for master in masters:
             print(crayons.yellow(master.vm_attributes.name))
@@ -112,8 +115,8 @@ class KubeCluster:
 
     def get_template_vms(self):
         # TODO: Support preinstall option as argument
-        # TODO: Use VMQuery to get PVE nodes templates instead of factory, when create is false.
-        create = self.cluster_config.get(VMCategory.template.value).get('create')
+        template_config = self.cluster_config.get(VMCategory.template.value)
+        create = template_config.get('create')
         if create is None:
             create = True
 
@@ -123,9 +126,11 @@ class KubeCluster:
             logging.error(crayons.red(f'Failed to generate templates from configuration.'))
             return {}
         for template_attributes in template_attribute_list:
-            factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
-            templates[template_attributes.node] = factory(vm_attributes=template_attributes, client=settings.vm_client)
-            templates['create'] = create
+            if create:
+                factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
+                templates[template_attributes.node] = factory(vm_attributes=template_attributes, client=settings.vm_client)
+            else:
+                templates[template_attributes.node] = self.query_vms(template_attributes, template=True)
         return templates
 
     def get_masters_vms(self, templates: dict):
@@ -173,6 +178,17 @@ class KubeCluster:
                 username=username
             )
         return workers
+
+    def query_vms(self, config: VMAttributes, template=False):
+        query = VMQuery(
+            client=settings.vm_client,
+            name=config.name,
+            pool=self.cluster_attributes.pool
+        )
+        return query.execute(
+            node=config.node,
+            template=template
+        )
 
     @staticmethod
     def get_vms(vm_attributes_list: list, role: str, templates: dict, disk: dict, username: str = None):
