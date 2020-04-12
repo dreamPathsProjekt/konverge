@@ -150,5 +150,8 @@ def execute():
     if kube_config_client:
         print(vars(kube_config_client.control_plane))
         print(kube_config_client.cluster_attributes)
-    kube_config_client.get_cluster()
+
+    print(kube_config_client.template)
+    print(kube_config_client.masters)
+    print(kube_config_client.workers)
 

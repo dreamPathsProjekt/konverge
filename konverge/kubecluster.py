@@ -1,6 +1,7 @@
 import logging
 import crayons
 from typing import NamedTuple
+from functools import singledispatch
 
 from konverge import settings
 from konverge.utils import KubeStorage, HelmVersion, VMCategory, VMAttributes, Storage
@@ -33,6 +34,15 @@ class KubeCluster:
         self.control_plane = self._serialize_control_plane()
         self.cluster_attributes = self._serialize_cluster_attributes()
         self.cluster_ssh_key = self.cluster_config.get('ssh_key')
+
+        self.vms_response_is_empty = singledispatch(self.vms_response_is_empty_dict)
+        self.vms_response_is_empty.register(list, self.vms_response_is_empty_list)
+        self.vms_response_is_empty.register(dict, self.vms_response_is_empty_dict)
+
+        self.template = None
+        self.masters = None
+        self.workers = None
+        self.retrieve() if self.cluster_exists() else self.initialize()
 
     def _serialize_cluster_attributes(self):
         os_type = self.cluster_config.get('os_type') or 'ubuntu'
@@ -81,42 +91,72 @@ class KubeCluster:
             setattr(control_plane_definitions, f'apiserver_{key}', value)
         return control_plane_definitions
 
-    def get_cluster(self):
+    @staticmethod
+    def vms_response_is_empty(vms, category: VMCategory):
+        pass
+
+    @staticmethod
+    def vms_response_is_empty_list(vms, category: VMCategory):
+        if not vms:
+            logging.error(crayons.red(f'Instances of type: {category.value} not found'))
+            return True
+        return False
+
+    @staticmethod
+    def vms_response_is_empty_dict(vms, category: VMCategory):
+        if not vms:
+            logging.error(crayons.red(f'Instances of type: {category.value} not found'))
+            return True
+        if not any(vms.values()):
+            logging.error(crayons.red(f'Instances of type: {category.value} not found'))
+            return True
+        return False
+
+    @staticmethod
+    def generate_template(template_attributes: VMAttributes):
+        factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
+        return factory(vm_attributes=template_attributes, client=settings.vm_client)
+
+    def cluster_exists(self):
         kube_executor = KubeExecutor()
         if kube_executor.cluster_exists(self):
-            print(crayons.yellow(f'Cluster {self.cluster_attributes.name} exists.'))
-            return
+            logging.warning(crayons.yellow(f'Cluster {self.cluster_attributes.name} exists.'))
+            return True
+        return False
 
+    def initialize(self):
+        print(crayons.cyan(f'Getting initial requirements for cluster: {self.cluster_attributes.name}'))
         templates = self.get_template_vms()
-
-        if not templates:
-            print(templates)
+        if self.vms_response_is_empty(templates, category=VMCategory.template):
             return
-        if not any(templates.values()):
-            print(templates)
-            return
-        masters = self.get_masters_vms(templates)
-        workers = self.get_workers_vms(templates)
 
-        # Debug only & during execute/plan
-        for key, value in templates.items():
-            print(crayons.cyan(key))
-            print(crayons.yellow(value.vm_attributes.name))
-            print(crayons.green(value.vm_attributes.description))
-            print(vars(value))
-            print(value.proxmox_node.connection.original_host)
+        self.template = templates
+        masters = self.get_masters_vms(self.template)
+        workers = self.get_workers_vms(self.template)
+        if not self.vms_response_is_empty(masters, category=VMCategory.masters):
+            self.masters = masters
+        if not self.vms_response_is_empty(workers, category=VMCategory.workers):
+            self.workers = workers
+        print(crayons.green(f'Cluster: {self.cluster_attributes.name} initialized.'))
 
-        for master in masters:
-            print(crayons.yellow(master.vm_attributes.name))
-            print(crayons.green(master.vm_attributes.description))
-            print(vars(master))
+    def retrieve(self):
+        # TODO: Query vms if cluster exists.
+        pass
 
-        for key, value in workers.items():
-            print(crayons.cyan(key))
-            for vm in value:
-                print(crayons.yellow(vm.vm_attributes.name))
-                print(crayons.green(vm.vm_attributes.description))
-                print(vars(vm))
+    def update(self):
+        pass
+
+    def show(self):
+        pass
+
+    def plan(self):
+        pass
+
+    def apply(self):
+        pass
+
+    def delete(self):
+        pass
 
     def get_template_vms(self):
         # TODO: Support preinstall option as argument
@@ -131,11 +171,17 @@ class KubeCluster:
             logging.error(crayons.red(f'Failed to generate templates from configuration.'))
             return {}
         for template_attributes in template_attribute_list:
-            if create:
-                factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
-                templates[template_attributes.node] = factory(vm_attributes=template_attributes, client=settings.vm_client)
-            else:
-                templates[template_attributes.node] = self.query_vms(template_attributes, template=True)
+                template_query = self.query_vms(template_attributes, template=True)
+                template = self.generate_template(template_attributes)
+                if not create and template_query:
+                    templates[template_attributes.node] = template_query
+                else:
+                    msg = (
+                        f'Template create is false and template {template_attributes.name} was not found ' +
+                        f'on node: {template_attributes.node}. Generating from config'
+                    )
+                    logging.warning(crayons.yellow(msg)) if not create else None
+                    templates[template_attributes.node] = template
         return templates
 
     def get_masters_vms(self, templates: dict):
