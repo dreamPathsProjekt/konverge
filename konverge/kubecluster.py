@@ -84,7 +84,7 @@ class KubeCluster:
     def get_cluster(self):
         kube_executor = KubeExecutor()
         if kube_executor.cluster_exists(self):
-            print(crayons.yellow(f'Cluster found!'))
+            print(crayons.yellow(f'Cluster {self.cluster_attributes.name} exists.'))
             return
 
         templates = self.get_template_vms()

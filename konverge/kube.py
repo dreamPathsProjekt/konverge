@@ -671,6 +671,9 @@ class KubeExecutor:
 
     # Use str type annotation for kube_cluster, to avoid cyclic import.
     def unset_local_cluster_config(self, kube_cluster: 'KubeCluster'):
+        if not self.cluster_exists(kube_cluster):
+            logging.warning(crayons.yellow(f'Cluster: {kube_cluster.cluster_attributes.name} not found in config.'))
+            return
         cluster_name = kube_cluster.cluster_attributes.name
         user = kube_cluster.cluster_attributes.user
         context = kube_cluster.cluster_attributes.context

@@ -74,4 +74,27 @@ PROXMOX_CLUSTER_SCHEMA = {
 }
 
 
-KUBE_CLUSTER_SCHEMA = {}
+KUBE_CLUSTER_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'name': {'type': 'string'},
+        'user': {'type': 'string'},
+        'context': {'type': 'string'},
+        'pool': {'type': 'string'},
+        'os_type': {
+            'type': 'string',
+            'pattern': '^(ubuntu|centos)$'
+        },
+        'ssh_key': {'type': 'string'},
+        'template': {'type': 'object'},
+        'control_plane': {'type': 'object'},
+        'storage': {
+            'type': ['string', 'null'],
+            'pattern': '^(rook|nfs|glusterfs)$'
+        },
+        'helm': {'type': 'object'},
+        'masters': {'type': 'object'},
+        'workers': {'type': 'array'}
+    },
+    'required': ['name', 'pool', 'os_type', 'ssh_key', 'template', 'masters', 'workers']
+}
