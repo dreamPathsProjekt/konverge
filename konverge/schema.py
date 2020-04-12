@@ -73,7 +73,6 @@ PROXMOX_CLUSTER_SCHEMA = {
     'required': ['name', 'nodes', 'network']
 }
 
-
 KUBE_CLUSTER_SCHEMA = {
     'type': 'object',
     'properties': {
@@ -86,12 +85,71 @@ KUBE_CLUSTER_SCHEMA = {
             'pattern': '^(ubuntu|centos)$'
         },
         'ssh_key': {'type': 'string'},
-        'template': {'type': 'object'},
+        'template': {
+            'type': 'object',
+            'properties': {
+                'create': {'type': 'boolean'},
+                'pve_storage': {
+                    'type': 'object',
+                    'properties': {
+                        'instance': {
+                            'type': 'object',
+                            'properties': {
+                                'type': {
+                                    'type': 'string',
+                                    'pattern': '^(cephfs|cifs|dir|drbd|fake|glusterfs|iscsi|iscsidirect|lvm|lvmthin|nfs|rbd|sheepdog|zfs|zfspool)$'
+                                }
+                            },
+                            'required': ['type']
+                        },
+                        'image': {
+                            'type': 'object',
+                            'properties': {
+                                'type': {
+                                    'type': 'string',
+                                    'pattern': '^(cephfs|cifs|dir|drbd|fake|glusterfs|iscsi|iscsidirect|lvm|lvmthin|nfs|rbd|sheepdog|zfs|zfspool)$'
+                                }
+                            },
+                            'required': ['type']
+                        }
+                    },
+                    'required': ['instance', 'image']
+                },
+                'name': {'type': 'string'},
+                'node': {'type': 'string'},
+                'cpus': {
+                    'type': 'integer',
+                    'minimum': 1
+                },
+                'memory': {
+                    'type': 'integer',
+                    'minimum': 1
+                },
+                'disk': {
+                    'type': 'object',
+                    'properties': {
+                        'size': {
+                            'type': 'integer',
+                            'minimum': 1
+                        },
+                        'hotplug': {'type': 'boolean'},
+                        'hotplug_size': {
+                            'type': 'integer',
+                            'minimum': 1
+                        }
+                    },
+                    'required': ['size']
+                },
+                'scsi': {'type': 'boolean'}
+            },
+            'required': ['pve_storage', 'name', 'node']
+        },
         'control_plane': {'type': 'object'},
         'storage': {
             'type': ['string', 'null'],
             'pattern': '^(rook|nfs|glusterfs)$'
         },
+        'loadbalancer': {'type': 'boolean'},
         'helm': {'type': 'object'},
         'masters': {'type': 'object'},
         'workers': {'type': 'array'}
