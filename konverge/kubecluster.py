@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 from konverge import settings
 from konverge.utils import KubeStorage, HelmVersion, VMCategory, VMAttributes, Storage
-from konverge.kube import ControlPlaneDefinitions
+from konverge.kube import ControlPlaneDefinitions, KubeExecutor
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
 from konverge.queries import VMQuery
@@ -82,6 +82,11 @@ class KubeCluster:
         return control_plane_definitions
 
     def get_cluster(self):
+        kube_executor = KubeExecutor()
+        if kube_executor.cluster_exists(self):
+            print(crayons.yellow(f'Cluster found!'))
+            return
+
         templates = self.get_template_vms()
 
         if not templates:

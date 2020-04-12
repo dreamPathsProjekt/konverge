@@ -454,6 +454,22 @@ class KubeConfig:
                 print(crayons.red(f'{yaml_error}'))
                 return None
 
+    def cluster_exists(self):
+        if not self.clusters:
+            return False
+
+        terms = []
+        if self.custom_cluster_name:
+            cluster = self.custom_cluster_name in [cluster.get('name') for cluster in self.clusters]
+            terms.append(cluster)
+        if self.custom_user_name:
+            user = self.custom_user_name in [user.get('name') for user in self.users]
+            terms.append(user)
+        if self.custom_context:
+            context = self.custom_context in [context.get('name') for context in self.contexts]
+            terms.append(context)
+        return all(terms) if terms else False
+
     def update_current_context(self, new_context):
         if not self.current_context:
             self.config_yaml['current-context'] = new_context
@@ -662,6 +678,17 @@ class KubeExecutor:
         self.local.run(f'HOME={self.home} kubectl config delete-cluster {cluster_name}')
         self.local.run(f'HOME={self.home} kubectl config delete-context {context}')
         self.local.run(f'HOME={self.home} kubectl config unset users.{user}')
+
+    def cluster_exists(self, kube_cluster: 'KubeCluster'):
+        local_kube = os.path.join(self.home, '.kube')
+        config_file = os.path.join(local_kube, 'config')
+        cluster_name = kube_cluster.cluster_attributes.name
+        kube_config = KubeConfig(config_filename=config_file, custom_cluster_name=cluster_name)
+        if kube_cluster.cluster_attributes.user:
+            kube_config.custom_user_name = kube_cluster.cluster_attributes.user
+        if kube_cluster.cluster_attributes.context:
+            kube_config.custom_context = kube_cluster.cluster_attributes.context
+        return kube_config.cluster_exists()
 
     def wait_for_running_system_status(self, namespace='kube-system', remote=False, poll_interval=1):
         runner = LOCAL.run if not remote else self.wrapper.execute
