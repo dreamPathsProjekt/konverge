@@ -54,13 +54,18 @@ class KubeCluster:
         loadbalancer = self.cluster_config.get('loadbalancer') or True
 
         versions = self.cluster_config.get('versions')
+        docker = None
         if not versions:
             version = None
-            docker = None
         else:
             version = versions.get('kubernetes')
-            docker = versions.get('docker')
-        self.infer_full_versions_from_major()
+            docker_ce = versions.get('docker_ce', False)
+            if version:
+                version, docker = self.infer_full_versions_from_major(kubernetes=version, docker_ce=docker_ce)
+            print(crayons.green(f'Kubernetes version: {version}'))
+            ce='Docker CE'
+            io='docker.io'
+            print(crayons.green(f'{ce if docker_ce else io} version: {docker}'))
 
         helm_attributes = self.cluster_config.get('helm')
         if not helm_attributes:
@@ -105,25 +110,48 @@ class KubeCluster:
         return control_plane_definitions
 
     @staticmethod
-    def infer_full_versions_from_major(kubernetes='1.17', docker='18.09', docker_ce=False):
-        # TODO: Install from docker-ce repository if version is not supported in docker.io. Changes in req_ubuntu.sh script.
+    def infer_full_versions_from_major(kubernetes='1.17', docker_ce=False):
         versions = get_kube_versions(kube_major=kubernetes, docker_ce=docker_ce)
         lines = versions.splitlines()
         start = 0
         end = len(lines)
+        docker_ce_start = 0
+        docker_ce_end = len(lines)
+        docker_io_start = 0
+        docker_io_end = len(lines)
         for line in lines:
             if '=== kubelet ===' in line:
                 start = lines.index(line)
             if '=== kubectl ===' in line:
                 end = lines.index(line)
+            if '=== docker.io ===' in line:
+                docker_io_start = lines.index(line)
+            if '=== docker-ce ===' in line:
+                docker_io_end = lines.index(line)
+            if '=== docker-ce ===' in line and docker_ce:
+                docker_ce_start = lines.index(line)
+            if docker_ce:
+                docker_ce_end = -1
         version_list = [entry for entry in lines[start+1:end] if entry]
+        docker_ce_list = [entry for entry in lines[docker_ce_start+1:docker_ce_end] if entry] if docker_ce else []
+        docker_io_list = [entry for entry in lines[docker_io_start+1:docker_io_end] if entry]
         minor_versions = []
+        docker_ce_versions = []
+        docker_io_versions = []
         for entry in version_list:
             title, version, url = entry.split('|')
             minor_versions.append(version.strip())
+        if docker_ce:
+            for entry in docker_ce_list:
+                title, version, url = entry.split('|')
+                docker_ce_versions.append(version.strip())
+        for entry in docker_io_list:
+            title, version, url = entry.split('|')
+            docker_io_versions.append(version.strip())
         latest = minor_versions[0]
-        print(latest)
-        return minor_versions
+        if docker_ce:
+            return latest, docker_ce_versions[0]
+        return latest, docker_io_versions[0]
 
     @staticmethod
     def vms_response_is_empty(vms, category: VMCategory):

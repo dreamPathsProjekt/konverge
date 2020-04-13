@@ -20,9 +20,27 @@ sudo apt-add-repository -y "deb http://apt.kubernetes.io/ kubernetes-xenial main
 sudo apt-get install -y qemu-guest-agent
 
 # Install required packages
-sudo apt-get install -y docker.io=${DOCKER_VERSION}
-# Mark packages on hold - upgrade k8s through k8s & not apt
-sudo apt-mark hold docker.io
+if [[ -z "${DOCKER_CE}" ]]; then
+    sudo apt-get install -y docker.io=${DOCKER_VERSION}
+    # Mark packages on hold - upgrade k8s through k8s & not apt
+    sudo apt-mark hold docker.io containerd
+else
+    echo -e "Installing Docker CE"
+    sudo apt-get update && \
+    sudo apt-get install -y \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        software-properties-common && \
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add - && \
+    sudo add-apt-repository -y \
+        "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+        $(lsb_release -cs) \
+        stable" && \
+    sudo apt-get update && \
+    sudo apt-get install -y docker-ce=${DOCKER_VERSION}
+    sudo apt-mark hold docker-ce containerd
+fi
 
 sudo cp "${DAEMON_JSON_LOCATION}/daemon.json" /etc/docker
 

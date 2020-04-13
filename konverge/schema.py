@@ -90,12 +90,13 @@ KUBE_CLUSTER_SCHEMA = {
             'properties': {
                 'kubernetes': {
                     'type': 'string',
-                    'pattern': '^(1.16|1.16.*|1.17|1.17.*)$'
+                    'pattern': '^(1.15|1.15.*|1.16|1.16.*|1.17|1.17.*)$'
                 },
-                'docker': {
-                    'type': 'string',
-                    'pattern': '^(18.09.7-0ubuntu1~18.04.4)$'
-                }
+                # 'docker': {
+                #     'type': 'string',
+                #     'pattern': '^(18|18.06|18.06.*|18.09|18.09.*|19|19.03|19.03.*)$'
+                # },
+                'docker_ce': {'type': 'boolean'}
             },
             'required': []
         },
