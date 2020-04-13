@@ -9,7 +9,7 @@ from konverge.utils import (
     Storage,
     BackupMode
 )
-from konverge.settings import cluster_config_client
+from konverge.settings import pve_cluster_config_client
 from konverge.cloudinit import CloudinitTemplate
 
 
@@ -28,7 +28,7 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         self.client = client
         self.template = template
         self.proxmox_node = proxmox_node if proxmox_node else (
-            cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
+            pve_cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
         )
         self.self_node = FabricWrapper(host=vm_attributes.name)
         self.self_node_sudo = FabricWrapper(host=vm_attributes.name, sudo=True)

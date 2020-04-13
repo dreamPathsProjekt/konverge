@@ -1,6 +1,11 @@
 import time
+import os
 
-from konverge.settings import vm_client
+# Pass Custom file
+from konverge.utils import set_pve_config_filename, set_kube_config_filename
+set_pve_config_filename('test.yml')
+
+from konverge import settings
 from konverge.utils import VMAttributes, Storage, FabricWrapper, get_kube_versions
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
@@ -8,6 +13,7 @@ from konverge.queries import VMQuery
 # from konverge.kube import KubeProvisioner, ControlPlaneDefinitions, KubeExecutor
 from konverge.kubecluster import KubeCluster
 from konverge.files import KubeClusterConfigFile
+
 
 def execute():
     proxmox_node = FabricWrapper(host='vhost3.proxmox')
@@ -22,7 +28,7 @@ def execute():
         gateway='10.0.100.105'
     )
     ubuntu_template_factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
-    ubuntu_template = ubuntu_template_factory(vm_attributes=template_attributes, client=vm_client, proxmox_node=proxmox_node)
+    ubuntu_template = ubuntu_template_factory(vm_attributes=template_attributes, client=settings.vm_client, proxmox_node=proxmox_node)
 
     # Create Template with preinstall
     # ubuntu_template.execute()
@@ -145,6 +151,7 @@ def execute():
     # print(cluster_config_client.get_network_base())
     # print(kube_executor.get_bridge_common_interface())
     # print(get_kube_versions(kube_major='1.16'))
+
     kube_config = KubeClusterConfigFile().serialize()
     kube_config_client = KubeCluster(kube_config)
     if kube_config_client:

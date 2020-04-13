@@ -80,10 +80,10 @@ class CommonVMMixin:
                 return storage_result.get('storage')
 
     def generate_allowed_ip(self):
-        network = settings.cluster_config_client.get_network_base()
-        loadbalancer = settings.cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False)
-        start, end = settings.cluster_config_client.get_allowed_range()
-        allocated = settings.cluster_config_client.get_allocated_ips_from_config(namefilter=self.vm_attributes.node)
+        network = settings.pve_cluster_config_client.get_network_base()
+        loadbalancer = settings.pve_cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False)
+        start, end = settings.pve_cluster_config_client.get_allowed_range()
+        allocated = settings.pve_cluster_config_client.get_allocated_ips_from_config(namefilter=self.vm_attributes.node)
         # Arp-scan
         allocated.update(self.get_allocated_ips_per_node_interface())
         # Cloudinit allocated, includes stopped vms.
@@ -285,7 +285,7 @@ class CommonVMMixin:
                 )
             )
         self.create_allowed_ip_if_not_exists()
-        gateway = self.vm_attributes.gateway if self.vm_attributes.gateway else settings.cluster_config_client.gateway
+        gateway = self.vm_attributes.gateway if self.vm_attributes.gateway else settings.pve_cluster_config_client.gateway
 
         print(crayons.blue(f'Inject cloudinit values ipconfig: ip={self.allowed_ip}, gateway={gateway}, sshkeys: {self.vm_attributes.public_ssh_key}'))
         return self.client.inject_vm_cloudinit(

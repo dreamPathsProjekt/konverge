@@ -8,7 +8,7 @@ from fabric2 import Result
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
 from konverge.utils import LOCAL
-from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, cluster_config_client, vm_client
+from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, pve_cluster_config_client, vm_client
 
 # Avoid cyclic import
 if TYPE_CHECKING:
@@ -833,7 +833,7 @@ class KubeExecutor:
     @staticmethod
     def get_bridge_common_interface(interface='vmbr0'):
         map_nodes_to_ifaces = {}
-        nodes = cluster_config_client.get_nodes()
+        nodes = pve_cluster_config_client.get_nodes()
         for node in nodes:
             interfaces = vm_client.get_cluster_node_bridge_interfaces(node=node.name)
             for iface in interfaces:
@@ -850,7 +850,7 @@ class KubeExecutor:
             local_workdir = os.path.join(WORKDIR, '.metallb')
             local_values_path = os.path.join(local_workdir, values_file)
 
-            metallb_range = cluster_config_client.loadbalancer_ip_range_to_string_or_list()
+            metallb_range = pve_cluster_config_client.loadbalancer_ip_range_to_string_or_list()
             if not metallb_range:
                 logging.error(crayons.red('Could not deploy MetalLB with given cluster values.'))
                 return

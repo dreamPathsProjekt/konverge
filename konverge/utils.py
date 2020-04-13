@@ -351,3 +351,13 @@ def human_readable_disk_size(size):
    power = math.pow(1024, index)
    result = round(size/power, 2)
    return int(result), size_name[index]
+
+
+def set_pve_config_filename(filename: str):
+    if filename:
+        os.environ['PVE_FILENAME'] = filename
+
+
+def set_kube_config_filename(filename: str):
+    if filename:
+        os.environ['KUBE_FILENAME'] = filename

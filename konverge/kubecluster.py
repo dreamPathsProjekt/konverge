@@ -282,7 +282,7 @@ class KubeCluster:
         return self.get_vm_attributes(group)
 
     def get_vm_attributes(self, group: dict, template=False):
-        gateway = settings.cluster_config_client.gateway
+        gateway = settings.pve_cluster_config_client.gateway
         name = group.get('name')
         scale = group.get('scale') if not template else None
         node = group.get('node')

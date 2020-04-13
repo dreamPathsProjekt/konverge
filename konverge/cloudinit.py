@@ -10,7 +10,7 @@ from konverge.utils import (
     VMAttributes,
     FabricWrapper
 )
-from konverge.settings import cluster_config_client
+from konverge.settings import pve_cluster_config_client
 
 
 class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
@@ -30,7 +30,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         self.vm_attributes = vm_attributes
         self.client = client
         self.proxmox_node = proxmox_node if proxmox_node else (
-            cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
+            pve_cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
         )
         self.unused_driver = unused_driver
         self.preinstall = preinstall

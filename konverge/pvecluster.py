@@ -9,7 +9,7 @@ from konverge.files import ProxmoxClusterConfigFile, ConfigSerializer
 from konverge.utils import FabricWrapper
 
 
-class ClusterConfig:
+class PVEClusterConfig:
     def __init__(self, cluster_config: ProxmoxClusterConfigFile):
         self.cluster = cluster_config.serialize()
 
