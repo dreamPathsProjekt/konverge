@@ -4,7 +4,7 @@ from typing import NamedTuple
 from functools import singledispatch
 
 from konverge import settings
-from konverge.utils import KubeStorage, HelmVersion, VMCategory, VMAttributes, Storage
+from konverge.utils import KubeStorage, HelmVersion, VMCategory, VMAttributes, Storage, get_kube_versions
 from konverge.kube import ControlPlaneDefinitions, KubeExecutor
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
@@ -25,6 +25,8 @@ class ClusterAttributes(NamedTuple):
     context: str = None
     storage: KubeStorage = None
     loadbalancer: bool = True
+    version: str = None
+    docker: str = None
     helm: HelmAtrributes = HelmAtrributes()
 
 
@@ -51,6 +53,15 @@ class KubeCluster:
         storage = KubeStorage.return_value(self.cluster_config.get('storage'))
         loadbalancer = self.cluster_config.get('loadbalancer') or True
 
+        versions = self.cluster_config.get('versions')
+        if not versions:
+            version = None
+            docker = None
+        else:
+            version = versions.get('kubernetes')
+            docker = versions.get('docker')
+        self.infer_full_versions_from_major()
+
         helm_attributes = self.cluster_config.get('helm')
         if not helm_attributes:
             helm = HelmAtrributes()
@@ -72,6 +83,8 @@ class KubeCluster:
             context=context,
             storage=storage,
             loadbalancer=loadbalancer,
+            version=version,
+            docker=docker,
             helm=helm
         )
 
@@ -90,6 +103,27 @@ class KubeCluster:
         for key, value in apiserver.items():
             setattr(control_plane_definitions, f'apiserver_{key}', value)
         return control_plane_definitions
+
+    @staticmethod
+    def infer_full_versions_from_major(kubernetes='1.17', docker='18.09', docker_ce=False):
+        # TODO: Install from docker-ce repository if version is not supported in docker.io. Changes in req_ubuntu.sh script.
+        versions = get_kube_versions(kube_major=kubernetes, docker_ce=docker_ce)
+        lines = versions.splitlines()
+        start = 0
+        end = len(lines)
+        for line in lines:
+            if '=== kubelet ===' in line:
+                start = lines.index(line)
+            if '=== kubectl ===' in line:
+                end = lines.index(line)
+        version_list = [entry for entry in lines[start+1:end] if entry]
+        minor_versions = []
+        for entry in version_list:
+            title, version, url = entry.split('|')
+            minor_versions.append(version.strip())
+        latest = minor_versions[0]
+        print(latest)
+        return minor_versions
 
     @staticmethod
     def vms_response_is_empty(vms, category: VMCategory):

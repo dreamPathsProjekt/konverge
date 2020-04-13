@@ -85,6 +85,20 @@ KUBE_CLUSTER_SCHEMA = {
             'pattern': '^(ubuntu|centos)$'
         },
         'ssh_key': {'type': 'string'},
+        'versions': {
+            'type': 'object',
+            'properties': {
+                'kubernetes': {
+                    'type': 'string',
+                    'pattern': '^(1.16|1.16.*|1.17|1.17.*)$'
+                },
+                'docker': {
+                    'type': 'string',
+                    'pattern': '^(18.09.7-0ubuntu1~18.04.4)$'
+                }
+            },
+            'required': []
+        },
         'template': {
             'type': 'object',
             'properties': {
