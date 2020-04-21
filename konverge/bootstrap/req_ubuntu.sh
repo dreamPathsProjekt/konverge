@@ -23,7 +23,7 @@ sudo apt-get install -y qemu-guest-agent
 if [[ -z "${DOCKER_CE}" ]]; then
     sudo apt-get install -y docker.io=${DOCKER_VERSION}
     # Mark packages on hold - upgrade k8s through k8s & not apt
-    sudo apt-mark hold docker.io containerd
+    sudo apt-mark hold docker.io containerd cgroupfs-mount
 else
     echo -e "Installing Docker CE"
     sudo apt-get update && \
@@ -39,7 +39,7 @@ else
         stable" && \
     sudo apt-get update && \
     sudo apt-get install -y docker-ce=${DOCKER_VERSION}
-    sudo apt-mark hold docker-ce containerd
+    sudo apt-mark hold cgroupfs-mount containerd.io docker-ce docker-ce-cli
 fi
 
 sudo cp "${DAEMON_JSON_LOCATION}/daemon.json" /etc/docker

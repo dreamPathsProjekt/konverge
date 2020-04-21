@@ -4,7 +4,7 @@ from typing import NamedTuple
 from functools import singledispatch
 
 from konverge import settings
-from konverge.utils import KubeStorage, HelmVersion, VMCategory, VMAttributes, Storage, get_kube_versions
+from konverge.utils import KubeStorage, HelmVersion, VMCategory, VMAttributes, Storage, get_kube_versions, get_id_prefix
 from konverge.kube import ControlPlaneDefinitions, KubeExecutor
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
@@ -220,8 +220,8 @@ class KubeCluster:
     def delete(self):
         pass
 
-    def get_template_vms(self):
-        # TODO: Support preinstall option as argument
+    def get_template_vms(self, preinstall=True):
+        # TODO: Support preinstall option as argument, on other calling methods & generation.
         template_config = self.cluster_config.get(VMCategory.template.value)
         create = template_config.get('create')
         if create is None:
@@ -232,19 +232,45 @@ class KubeCluster:
         if not template_attribute_list:
             logging.error(crayons.red(f'Failed to generate templates from configuration.'))
             return {}
+
         for template_attributes in template_attribute_list:
-                template_query = self.query_vms(template_attributes, template=True)
-                template = self.generate_template(template_attributes)
-                if not create and template_query:
-                    templates[template_attributes.node] = template_query
-                else:
-                    msg = (
-                        f'Template create is false and template {template_attributes.name} was not found ' +
-                        f'on node: {template_attributes.node}. Generating from config'
+            template_query = self.query_vms(template_attributes, template=True) if not create else None
+            if template_query:
+                templates[template_attributes.node] = self.query_template_by_name_or_vmid(
+                    template_attributes=template_attributes,
+                    template_query=template_query,
+                    preinstall=preinstall
+                )
+            else:
+                msg = (
+                    f'Template create is false and template {template_attributes.name} was not found ' +
+                    f'on node: {template_attributes.node}. Generating from config'
+                )
+                logging.warning(crayons.yellow(msg)) if not create else None
+                if not template_attributes.name:
+                    err = (
+                        'Argument template.name is missing and template.create is true. '+
+                        'Cannot create template with no name.'
                     )
-                    logging.warning(crayons.yellow(msg)) if not create else None
-                    templates[template_attributes.node] = template
+                    logging.error(crayons.red(err))
+                    return {}
+                template = self.generate_template(template_attributes)
+                templates[template_attributes.node] = template
         return templates
+
+    def query_template_by_name_or_vmid(self, template_attributes, template_query, preinstall=True):
+        id_prefix = get_id_prefix(proxmox_node_scale=settings.node_scale, node=template_attributes.node)
+        template_vmid = int(f'{id_prefix}100') if preinstall else int(f'{id_prefix}000')
+        if not template_attributes.name:
+            warning = (
+                f'Argument template.name is missing. ' +
+                f'Searching for known template VMID {template_vmid} in Proxmox node {template_attributes.node}'
+            )
+            logging.warning(crayons.yellow(warning))
+            valid_templates = [vm for vm in template_query if vm.vmid == template_vmid]
+            return valid_templates[0] if valid_templates else self.generate_template(template_attributes)
+        else:
+            return template_query[0]
 
     def get_masters_vms(self, templates: dict):
         disk = self.cluster_config.get(VMCategory.masters.value).get('disk')
@@ -293,11 +319,15 @@ class KubeCluster:
         return workers
 
     def query_vms(self, config: VMAttributes, template=False):
-        query = VMQuery(
-            client=settings.vm_client,
-            name=config.name,
-            pool=self.cluster_attributes.pool
-        )
+        try:
+            query = VMQuery(
+                client=settings.vm_client,
+                name=config.name,
+                pool=self.cluster_attributes.pool
+            )
+        except AttributeError as query_missing_name:
+            logging.warning(f'Missing attribute {query_missing_name}')
+            query = VMQuery(client=settings.vm_client, pool=self.cluster_attributes.pool)
         return query.execute(
             node=config.node,
             template=template
@@ -364,7 +394,7 @@ class KubeCluster:
 
             for node_template in nodes:
                 template_attributes = VMAttributes(
-                    name=f'{node_template}-{name}',
+                    name=f'{node_template}-{name}' if name else None,
                     node=node_template,
                     pool=self.cluster_attributes.pool,
                     os_type=self.cluster_attributes.os_type,

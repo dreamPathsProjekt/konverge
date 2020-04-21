@@ -157,7 +157,7 @@ KUBE_CLUSTER_SCHEMA = {
                 },
                 'scsi': {'type': 'boolean'}
             },
-            'required': ['pve_storage', 'name', 'node']
+            'required': ['pve_storage', 'node']
         },
         'control_plane': {
             'type': 'object',
