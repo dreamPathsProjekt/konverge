@@ -28,6 +28,10 @@ KUBE_VERSION_MAP_DOCKER_IO = {
 }
 
 
+def colorize_yes_or_no(msg, yes=True):
+    return crayons.green(msg) if yes else crayons.red(msg)
+
+
 def get_kube_versions(os_type='ubuntu', kube_major='1.16', docker_ce=False):
     from konverge.settings import BASE_PATH
 

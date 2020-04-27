@@ -4,11 +4,23 @@ from typing import NamedTuple
 from functools import singledispatch
 
 from konverge import settings
-from konverge.utils import KubeStorage, HelmVersion, VMCategory, VMAttributes, Storage, get_kube_versions, get_id_prefix
+from konverge.utils import (
+    KubeStorage,
+    HelmVersion,
+    VMCategory,
+    VMAttributes,
+    Storage,
+    get_kube_versions,
+    get_id_prefix
+)
+from konverge import output
 from konverge.kube import ControlPlaneDefinitions, KubeExecutor
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
 from konverge.queries import VMQuery
+
+
+VMID_PLACEHOLDER = 9999
 
 
 class HelmAtrributes(NamedTuple):
@@ -41,10 +53,19 @@ class KubeCluster:
         self.vms_response_is_empty.register(list, self.vms_response_is_empty_list)
         self.vms_response_is_empty.register(dict, self.vms_response_is_empty_dict)
 
+        self.template_creation = self._get_template_creation()
+
         self.template = None
         self.masters = None
         self.workers = None
         self.retrieve() if self.cluster_exists() else self.initialize()
+
+    def _get_template_creation(self):
+        template_config = self.cluster_config.get(VMCategory.template.value)
+        create = template_config.get('create')
+        if create is not None:
+            return create
+        return True
 
     def _serialize_cluster_attributes(self):
         os_type = self.cluster_config.get('os_type') or 'ubuntu'
@@ -71,11 +92,11 @@ class KubeCluster:
         if not helm_attributes:
             helm = HelmAtrributes()
         else:
-            version = HelmVersion.return_value(helm_attributes.get('version')) or HelmVersion.v2
+            helm_version = HelmVersion.return_value(helm_attributes.get('version')) or HelmVersion.v2
             local = helm_attributes.get('local') or False
             tiller = helm_attributes.get('tiller') or True
             helm = HelmAtrributes(
-                version=version,
+                version=helm_version,
                 local=local,
                 tiller=tiller
             )
@@ -209,7 +230,11 @@ class KubeCluster:
         pass
 
     def show(self):
-        pass
+        output.output_cluster(self)
+        output.output_config(self)
+        output.output_control_plane(self)
+        output.output_templates(self)
+        # TODO: Implement master, worker groups & helm/storage/loadbalancer outputs.
 
     def plan(self):
         pass
@@ -222,10 +247,7 @@ class KubeCluster:
 
     def get_template_vms(self, preinstall=True):
         # TODO: Support preinstall option as argument, on other calling methods & generation.
-        template_config = self.cluster_config.get(VMCategory.template.value)
-        create = template_config.get('create')
-        if create is None:
-            create = True
+        create = self.template_creation
 
         templates = {}
         template_attribute_list = self.get_vm_group(category=VMCategory.template)
@@ -273,6 +295,12 @@ class KubeCluster:
             return template_query[0]
 
     def get_masters_vms(self, templates: dict):
+        """
+        InstanceClone.vmid is pre-populated,
+        to be filled with InstanceClone.generate_vmid_and_username(),
+        dynamically at creation time (apply).
+        Avoids multiple VMs to retrieve the same vmid, during initialization.
+        """
         disk = self.cluster_config.get(VMCategory.masters.value).get('disk')
         username = self.cluster_config.get(VMCategory.masters.value).get('username')
         masters_attributes = self.get_vm_group(category=VMCategory.masters)
@@ -281,10 +309,17 @@ class KubeCluster:
             role=VMCategory.masters.value,
             templates=templates,
             disk=disk,
+            vmid=VMID_PLACEHOLDER,
             username=username
         )
 
     def get_workers_vms(self, templates: dict):
+        """
+        InstanceClone.vmid is pre-populated,
+        to be filled with InstanceClone.generate_vmid_and_username(),
+        dynamically at creation time (apply).
+        Avoids multiple VMs to retrieve the same vmid, during initialization.
+        """
         worker_groups = self.get_vm_group(category=VMCategory.workers)
         if not worker_groups:
             logging.error(crayons.red('Empty "workers" groups entry in configuration.'))
@@ -314,6 +349,7 @@ class KubeCluster:
                 role=role,
                 templates=templates,
                 disk=disk,
+                vmid=VMID_PLACEHOLDER,
                 username=username
             )
         return workers
@@ -334,7 +370,14 @@ class KubeCluster:
         )
 
     @staticmethod
-    def get_vms(vm_attributes_list: list, role: str, templates: dict, disk: dict, username: str = None):
+    def get_vms(
+            vm_attributes_list: list,
+            role: str,
+            templates: dict,
+            disk: dict,
+            vmid: int = None,
+            username: str = None
+    ):
         hotplug_disk = disk.get('hotplug')
         hotplug_disk_size = disk.get('hotplug_size')
         if hotplug_disk and not hotplug_disk_size:
@@ -354,6 +397,7 @@ class KubeCluster:
                 vm_attributes=vm_attributes,
                 client=settings.vm_client,
                 template=template,
+                vmid=vmid,
                 username=username
             )
             if hotplug_disk:

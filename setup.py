@@ -14,6 +14,7 @@ setup(
         "certifi ==2019.11.28",
         "cffi ==1.13.2",
         "chardet ==3.0.4",
+        "click ==7.1.1",
         "colorama ==0.4.3",
         "crayons ==0.3.0",
         "cryptography ==2.8",
