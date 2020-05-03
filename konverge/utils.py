@@ -122,6 +122,13 @@ class VMCategory(EnumCommon):
     workers = 'workers'
 
 
+class KubeClusterAction(EnumCommon):
+    create = 'create'
+    update = 'update'
+    delete = 'delete'
+    recreate = 'recreate'
+
+
 class VMAttributes:
     def __init__(
             self,

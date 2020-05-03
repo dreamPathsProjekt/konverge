@@ -5,6 +5,7 @@ from functools import singledispatch
 
 from konverge import settings
 from konverge.utils import (
+    KubeClusterAction,
     KubeStorage,
     HelmVersion,
     VMCategory,
@@ -229,15 +230,18 @@ class KubeCluster:
     def update(self):
         pass
 
-    def show(self):
+    def show(self, action: KubeClusterAction = KubeClusterAction.create):
         output.output_cluster(self)
         output.output_config(self)
         output.output_control_plane(self)
-        output.output_templates(self)
+        output.output_templates(self, action=action)
         # TODO: Implement master, worker groups & helm/storage/loadbalancer outputs.
 
     def plan(self):
-        pass
+        if not self.cluster_exists():
+            self.show(action=KubeClusterAction.create)
+            return
+        logging.warning(crayons.yellow('Cluster update not implemented yet.'))
 
     def apply(self):
         pass

@@ -6,7 +6,16 @@ if TYPE_CHECKING:
     from konverge.kubecluster import KubeCluster
     from konverge.instance import InstanceClone
 
-from konverge.utils import VMAttributes, colorize_yes_or_no
+from konverge.utils import KubeClusterAction, VMAttributes, colorize_yes_or_no
+
+
+def create_update_or_delete(msg: str, action: KubeClusterAction = KubeClusterAction.create):
+    if action == KubeClusterAction.create:
+        return crayons.green(msg)
+    if action == KubeClusterAction.update:
+        return crayons.yellow(msg)
+    if action == KubeClusterAction.delete or action == KubeClusterAction.recreate:
+        return crayons.red(msg)
 
 
 def output_cluster(kube_cluster: 'KubeCluster'):
@@ -54,7 +63,7 @@ def output_control_plane(kube_cluster: 'KubeCluster'):
     print('')
 
 
-def output_templates(kube_cluster: 'KubeCluster'):
+def output_templates(kube_cluster: 'KubeCluster', action: KubeClusterAction = KubeClusterAction.create):
     template_title = f'Cluster {kube_cluster.cluster_attributes.name} VM Templates'
     print(crayons.cyan(template_title))
     print(crayons.cyan('=' * len(template_title)))
@@ -67,41 +76,51 @@ def output_templates(kube_cluster: 'KubeCluster'):
     )
     print(crayons.cyan('-' * len(template_title)))
     print('')
+    symbol = ''
 
     for node, template in kube_cluster.template.items():
-        print(crayons.green(f'*** {template.vm_attributes.name} ***'))
-        print(crayons.white('Proxmox Node: ') + crayons.yellow(node))
-        print(crayons.white('VMID: ') + crayons.yellow(template.vmid))
-        print(crayons.white(f'Username: ') + crayons.yellow(f'{template.username}'))
+        if action == KubeClusterAction.create:
+            symbol = '+++'
+        if action == KubeClusterAction.delete:
+            symbol = '---'
+        if action == KubeClusterAction.update:
+            symbol = '~'
+        if action == KubeClusterAction.recreate:
+            symbol = '--++'
+        print(create_update_or_delete(msg=symbol, action=action))
+        print(create_update_or_delete(f'*** {template.vm_attributes.name} ***', action=action))
+        print(create_update_or_delete('Proxmox Node: ', action=action) + crayons.yellow(node))
+        print(create_update_or_delete('VMID: ', action=action) + crayons.yellow(template.vmid))
+        print(create_update_or_delete(f'Username: ', action=action) + crayons.yellow(f'{template.username}'))
 
         print(crayons.blue('PVE Storage'))
-        print(crayons.white(
-            f'Cloudinit Image Storage: {template.cloudinit_storage}, '
-            f'Type: {template.vm_attributes.image_storage_type.value}'
+        print(create_update_or_delete(
+            create_update_or_delete(f'Cloudinit Image Storage: {template.cloudinit_storage}, '
+            f'Type: {template.vm_attributes.image_storage_type.value}'), action=action
         ))
-        print(crayons.white(f'Disk Storage: {template.storage}, Type: {template.vm_attributes.storage_type.value}'))
+        print(create_update_or_delete(f'Disk Storage: {template.storage}, Type: {template.vm_attributes.storage_type.value}', action=action))
 
-        vm_output_helper(template.vm_attributes)
+        vm_output_helper(template.vm_attributes, action=action)
         print('')
         # print(crayons.white(f'  Allowed IP: {template.allowed_ip}'))
 
 
-def vm_output_helper(vm: VMAttributes):
+def vm_output_helper(vm: VMAttributes, action: KubeClusterAction = KubeClusterAction.create):
     print(crayons.blue('VM Attributes'))
-    print(crayons.white(f'Description: {vm.description}'))
-    print(crayons.white(f'CPUs: {vm.cpus}'))
-    print(crayons.white(f'Memory: {vm.memory} MB'))
-    print(crayons.white(f'Root Disk Size: {vm.disk_size} GB'))
-    print(crayons.white(f'Storage Driver: {"SCSI" if vm.scsi else "VirtIO"}'))
-    print(crayons.white(f'Gateway: {vm.gateway}'))
-    print(crayons.white(f'SSH KeyPair: ') + crayons.yellow(f'{vm.private_pem_ssh_key}, {vm.public_ssh_key}'))
+    print(create_update_or_delete(f'Description: {vm.description}', action=action))
+    print(create_update_or_delete(f'CPUs: {vm.cpus}', action=action))
+    print(create_update_or_delete(f'Memory: {vm.memory} MB', action=action))
+    print(create_update_or_delete(f'Root Disk Size: {vm.disk_size} GB', action=action))
+    print(create_update_or_delete(f'Storage Driver: {"SCSI" if vm.scsi else "VirtIO"}', action=action))
+    print(create_update_or_delete(f'Gateway: {vm.gateway}', action=action))
+    print(create_update_or_delete(f'SSH KeyPair: ', action=action) + crayons.yellow(f'{vm.private_pem_ssh_key}, {vm.public_ssh_key}'))
 
 
-def vm_output_hotplug_helper(vm: 'InstanceClone'):
+def vm_output_hotplug_helper(vm: 'InstanceClone', action: KubeClusterAction = KubeClusterAction.create):
     hotplug = 'Yes' if vm.hotplug_disk_size else 'No'
     print(
         crayons.white('Hotplug: ') +
         colorize_yes_or_no(msg=hotplug, yes=(hotplug == 'Yes'))
     )
     if vm.hotplug_disk_size:
-        print(crayons.white(f'Hotplug Disk Size: {vm.hotplug_disk_size}'))
+        print(create_update_or_delete(f'Hotplug Disk Size: {vm.hotplug_disk_size}', action=action))
