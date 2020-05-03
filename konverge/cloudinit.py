@@ -17,6 +17,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
     cls_cloud_image = ''
     full_url = ''
     filename = ''
+    disk_size_low_limit = 5
 
     def __init__(
             self,
@@ -72,6 +73,9 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         }
         return options.get(os_type)
 
+    def disk_size_check(self):
+        raise NotImplementedError
+
     def _update_description(self):
         self.vm_attributes.description = 'Generic Linux base template VM created by CloudImage.'
 
@@ -123,6 +127,10 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
             self.destroy_vm()
             return self.vmid
 
+        if self.disk_size_check():
+            logging.error(crayons.red('Aborting operation.'))
+            return self.vmid
+
         print(crayons.cyan(f'Stage: Download image: {self.cloud_image}'))
         image_filename = self.download_cloudinit_image()
 
@@ -170,9 +178,21 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     cls_cloud_image = 'bionic-server-cloudimg-amd64.img'
     full_url = f'https://cloud-images.ubuntu.com/bionic/current/{cls_cloud_image}'
     filename = 'req_ubuntu.sh'
+    disk_size_low_limit = 5
 
     def _update_description(self):
         self.vm_attributes.description = f'Ubuntu 18.04.3 base template VM created by CloudImage.'
+
+    def disk_size_check(self):
+        predicate = self.vm_attributes.disk_size < self.disk_size_low_limit
+        if predicate:
+            logging.warning(
+                crayons.yellow(
+                    f'Template {self.vm_attributes.name} disk size: {self.vm_attributes.disk_size}G is lower '
+                    f'than Ubuntu OS Type limit of {self.disk_size_low_limit}G'
+                )
+            )
+        return predicate
 
     def generate_vmid_and_username(self, id_prefix, preinstall=True):
         template_vmid = int(f'{id_prefix}100') if self.preinstall else int(f'{id_prefix}000')
@@ -213,9 +233,21 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     cls_cloud_image = 'CentOS-7-x86_64-GenericCloud.qcow2'
     full_url = f'https://cloud.centos.org/centos/7/images/{cls_cloud_image}'
     filename = 'req_centos.sh'
+    disk_size_low_limit = 10
 
     def _update_description(self):
         self.vm_attributes.description = f'CentOS 7 base template VM created by CloudImage.'
+
+    def disk_size_check(self):
+        predicate = self.vm_attributes.disk_size < self.disk_size_low_limit
+        if predicate:
+            logging.warning(
+                crayons.yellow(
+                    f'Template {self.vm_attributes.name} disk size: {self.vm_attributes.disk_size}G is lower '
+                    f'than Centos OS Type limit of {self.disk_size_low_limit}G'
+                )
+            )
+        return predicate
 
     def generate_vmid_and_username(self, id_prefix):
         template_vmid = int(f'{id_prefix}101') if self.preinstall else int(f'{id_prefix}001')

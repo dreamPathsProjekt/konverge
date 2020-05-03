@@ -157,3 +157,5 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         if start:
             print(crayons.cyan(f'Start requested - Starting VM: {self.vm_attributes.name} {self.vmid}'))
             self.start_stage()
+
+        return self.vmid
