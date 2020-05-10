@@ -18,6 +18,18 @@ def create_update_or_delete(msg: str, action: KubeClusterAction = KubeClusterAct
         return crayons.red(msg)
 
 
+def get_action_symbol(action):
+    if action == KubeClusterAction.create:
+        return '+++'
+    if action == KubeClusterAction.delete:
+        return '---'
+    if action == KubeClusterAction.update:
+        return '~'
+    if action == KubeClusterAction.recreate:
+        return '--++'
+    return ''
+
+
 def output_cluster(kube_cluster: 'KubeCluster'):
     title = f'Cluster: {kube_cluster.cluster_attributes.name}'
     print(crayons.cyan(title))
@@ -63,6 +75,47 @@ def output_control_plane(kube_cluster: 'KubeCluster'):
     print('')
 
 
+def output_tools_settings(kube_cluster: 'KubeCluster'):
+    settings_title = 'Kubernetes Tools'
+    print(crayons.cyan(settings_title))
+    print(crayons.cyan('=' * len(settings_title)))
+
+    output_helm_options(kube_cluster)
+    print(
+        crayons.white('Deploy MetalLB Loadbalancer: ') +
+        colorize_yes_or_no(
+            msg='Yes' if kube_cluster.cluster_attributes.loadbalancer else 'No',
+            yes=kube_cluster.cluster_attributes.loadbalancer
+        )
+    )
+    if kube_cluster.cluster_attributes.loadbalancer:
+        print(crayons.white('Loadbalancer Range: ') + crayons.yellow(kube_cluster.metallb_range))
+        print(
+            crayons.white(f'Storage Class Implementation: ') +
+            crayons.yellow(f'{kube_cluster.cluster_attributes.storage.value}')
+        )
+        print('')
+
+
+def output_helm_options(kube_cluster: 'KubeCluster'):
+    print(crayons.white(f'Helm Version: {kube_cluster.cluster_attributes.helm.version.value}'))
+    print(
+        crayons.white('Initially Install Helm Locally: ') +
+        colorize_yes_or_no(
+            msg='Yes' if kube_cluster.cluster_attributes.helm.local else 'No',
+            yes=kube_cluster.cluster_attributes.helm.local
+        )
+    )
+    print(
+        crayons.white('Initially Deploy Tiller: ') +
+        colorize_yes_or_no(
+            msg='Yes' if kube_cluster.cluster_attributes.helm.tiller else 'No',
+            yes=kube_cluster.cluster_attributes.helm.tiller
+        )
+    )
+    print('')
+
+
 def output_templates(kube_cluster: 'KubeCluster', action: KubeClusterAction = KubeClusterAction.create):
     template_title = f'Cluster {kube_cluster.cluster_attributes.name} VM Templates'
     print(crayons.cyan(template_title))
@@ -76,17 +129,9 @@ def output_templates(kube_cluster: 'KubeCluster', action: KubeClusterAction = Ku
     )
     print(crayons.cyan('-' * len(template_title)))
     print('')
-    symbol = ''
+    symbol = get_action_symbol(action)
 
     for node, template in kube_cluster.template.items():
-        if action == KubeClusterAction.create:
-            symbol = '+++'
-        if action == KubeClusterAction.delete:
-            symbol = '---'
-        if action == KubeClusterAction.update:
-            symbol = '~'
-        if action == KubeClusterAction.recreate:
-            symbol = '--++'
         print(create_update_or_delete(msg=symbol, action=action))
         print(create_update_or_delete(f'*** {template.vm_attributes.name} ***', action=action))
         print(create_update_or_delete('Proxmox Node: ', action=action) + crayons.yellow(node))
@@ -103,6 +148,28 @@ def output_templates(kube_cluster: 'KubeCluster', action: KubeClusterAction = Ku
         vm_output_helper(template.vm_attributes, action=action)
         print('')
         # print(crayons.white(f'  Allowed IP: {template.allowed_ip}'))
+
+
+def output_masters(kube_cluster: 'KubeCluster', action: KubeClusterAction = KubeClusterAction.create):
+    template_title = f'Cluster {kube_cluster.cluster_attributes.name} Master VMs'
+    print(crayons.cyan(template_title))
+    print(crayons.cyan('=' * len(template_title)))
+    print('')
+    symbol = get_action_symbol(action)
+
+    for master in kube_cluster.masters:
+        if action == KubeClusterAction.create:
+            vmid = crayons.magenta('[Known after apply]')
+        else:
+            vmid = crayons.yellow(master.vmid)
+        print(create_update_or_delete(msg=symbol, action=action))
+        print(create_update_or_delete(f'*** {master.vm_attributes.name} ***', action=action))
+        print(crayons.blue('Role: ') + crayons.yellow('master'))
+        print(create_update_or_delete('Proxmox Node: ', action=action) + crayons.yellow(master.vm_attributes.node))
+        print(create_update_or_delete(f'Username: ', action=action) + crayons.yellow(f'{master.username}'))
+        print(create_update_or_delete('VMID: ', action=action) + vmid)
+        vm_output_helper(master.vm_attributes, action=action)
+        print('')
 
 
 def vm_output_helper(vm: VMAttributes, action: KubeClusterAction = KubeClusterAction.create):

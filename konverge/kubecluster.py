@@ -61,6 +61,12 @@ class KubeCluster:
         self.workers = None
         self.retrieve() if self.cluster_exists() else self.initialize()
 
+    @property
+    def metallb_range(self):
+        if self.cluster_attributes.loadbalancer:
+            return settings.pve_cluster_config_client.loadbalancer_ip_range_to_string_or_list()
+        return ''
+
     def _get_template_creation(self):
         template_config = self.cluster_config.get(VMCategory.template.value)
         create = template_config.get('create')
@@ -234,8 +240,10 @@ class KubeCluster:
         output.output_cluster(self)
         output.output_config(self)
         output.output_control_plane(self)
+        output.output_tools_settings(self)
         output.output_templates(self, action=action)
-        # TODO: Implement master, worker groups & helm/storage/loadbalancer outputs.
+        output.output_masters(self, action=action)
+        # TODO: Implement worker groups.
 
     def plan(self):
         if not self.cluster_exists():
