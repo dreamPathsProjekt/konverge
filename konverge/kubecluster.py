@@ -244,6 +244,10 @@ class KubeCluster:
     def is_action_create(action=KubeClusterAction.create):
         return action == KubeClusterAction.create
 
+    def destroy_warning(self, destroy=False):
+        msg = f'Deleting Cluster {self.cluster_attributes.name} templates.'
+        logging.warning(crayons.yellow(msg)) if destroy else None
+
     def cluster_exists(self):
         """
         Checks local ~/.kube/config from KubeExecutor.cluster_exists(cluster),
@@ -343,7 +347,8 @@ class KubeCluster:
         self.post_installs()
         return template_vmid_list, masters_vmid_list, workers_vmid_list
 
-    def delete(self):
+    def delete(self, template=False, rollback_only=False):
+        """Bypass query functions to test delete?"""
         pass
 
     def retrieve(self):
@@ -356,16 +361,18 @@ class KubeCluster:
     def recreate(self):
         pass
 
-    def execute_templates(self):
+    def execute_templates(self, destroy=False):
         """Creates Cloudinit templates from scratch, or reuses templates if VMIDs exist on node."""
         template_vmids = []
-        if self.template_creation:
+        if self.template_creation or destroy:
+            self.destroy_warning(destroy)
             for node, template in self.template.items():
                 template_vmids.append(
                     template.execute(
                         kubernetes_version=self.cluster_attributes.version,
                         docker_version=self.cluster_attributes.docker,
-                        docker_ce=self.cluster_attributes.docker_ce
+                        docker_ce=self.cluster_attributes.docker_ce,
+                        destroy=destroy
                     )
                 )
         else:
@@ -374,26 +381,28 @@ class KubeCluster:
                 template_vmids.append(template.vmid)
         return template_vmids
 
-    def execute_masters(self):
+    def execute_masters(self, destroy=False):
         """Template unpacking per node is done, during initialization"""
         masters_vmids = []
+        self.destroy_warning(destroy)
         for master in self.masters:
             self.update_vmid(master)
-            masters_vmids.append(master.execute(start=True))
+            masters_vmids.append(master.execute(start=True, destroy=destroy))
         return masters_vmids
 
-    def execute_workers_group(self, workers: list):
+    def execute_workers_group(self, workers: list, destroy=False):
         group_vmids = []
         for worker in workers:
             self.update_vmid(worker)
-            group_vmids.append(worker.execute(start=True))
+            group_vmids.append(worker.execute(start=True, destroy=destroy))
         return group_vmids
 
-    def execute_workers(self):
+    def execute_workers(self, destroy=False):
         """Template unpacking per node is done, during initialization"""
         workers_vmids = {}
+        self.destroy_warning(destroy)
         for role, workers in self.workers.items():
-            workers_vmids[role] = self.execute_workers_group(workers)
+            workers_vmids[role] = self.execute_workers_group(workers, destroy=destroy)
         return workers_vmids
 
     def get_master_provisioners(self):
@@ -455,11 +464,25 @@ class KubeCluster:
             for joiner in joiners:
                 joiner.join_node(self.masters_leader, control_plane_node=True, certificate_key=cert_key)
 
+    def rollback_control_plane(self):
+        leader, joiners = self.get_master_provisioners()
+        for joiner in joiners:
+            joiner.rollback_node()
+        self.sleep(duration=120, reason='Wait for Rollback to complete')
+        leader.rollback_node()
+
     def join_workers(self):
         workers = self.get_workers_provisioners()
         for role, group in workers.items():
             for worker in group:
                 worker.join_node(leader=self.masters_leader, control_plane_node=False)
+
+    def rollback_workers(self):
+        workers = self.get_workers_provisioners()
+        for role, group in workers.items():
+            for worker in group:
+                worker.rollback_node()
+        self.sleep(duration=60, reason='Wait for Rollback to complete')
 
     def post_installs(self):
         # TODO: Support loadbalancer arguments yaml file, version, interface, from .cluster.yml
