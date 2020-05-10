@@ -183,7 +183,9 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     disk_size_low_limit = 5
 
     def _update_description(self):
-        self.vm_attributes.description = f'Ubuntu 18.04.3 base template VM created by CloudImage.'
+        base = f'Ubuntu 18.04.3 base template VM created by CloudImage.'
+        kube = f'Ubuntu 18.04.3 Kubernetes template VM created by CloudImage.'
+        self.vm_attributes.description = kube if self.preinstall else base
 
     def disk_size_check(self):
         predicate = self.vm_attributes.disk_size < self.disk_size_low_limit
@@ -240,7 +242,9 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     disk_size_low_limit = 10
 
     def _update_description(self):
-        self.vm_attributes.description = f'CentOS 7 base template VM created by CloudImage.'
+        base = f'CentOS 7 base template VM created by CloudImage.'
+        kube = f'CentOS 7 Kubernetes template VM created by CloudImage.'
+        self.vm_attributes.description = kube if self.preinstall else base
 
     def disk_size_check(self):
         predicate = self.vm_attributes.disk_size < self.disk_size_low_limit
