@@ -96,12 +96,14 @@ class KubeProvisioner:
             self,
             kubernetes_version='1.16.3-00',
             docker_version='18.09.7',
+            docker_ce=False,
             storageos_requirements=False
     ):
         self.instance.install_kube(
             filename=self.instance.template.filename,
             kubernetes_version=kubernetes_version,
             docker_version=docker_version,
+            docker_ce=docker_ce,
             storageos_requirements=storageos_requirements
         )
 
@@ -774,6 +776,13 @@ class KubeExecutor:
         token = run(command=command)
         return token.stdout.strip() if token.ok else None
 
+    def apply_label_node(self, role, instance_name):
+        prepend = f'HOME={self.home}'
+        label_node = f'node-role.kubernetes.io/{role}='
+        labeled = self.local.run(f'{prepend} kubectl label nodes {instance_name} {label_node}')
+        if labeled.ok:
+            print(crayons.green(f'Added label {label_node} to {instance_name}'))
+
     def helm_install_v2(self, patch=True, helm=True, tiller=True):
         prepend = f'HOME={self.home}'
         helm_script = 'https://git.io/get_helm.sh'
@@ -907,4 +916,4 @@ class KubeExecutor:
             logging.warning(crayons.yellow('"helm" not found on your system. Please run helm-install first'))
         return exit_code == '0'
 
-    # TODO: Storage.
+    # TODO: Storage feature.

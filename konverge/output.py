@@ -1,5 +1,5 @@
 import crayons
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 # Avoid cyclic import
 if TYPE_CHECKING:
@@ -151,24 +151,42 @@ def output_templates(kube_cluster: 'KubeCluster', action: KubeClusterAction = Ku
 
 
 def output_masters(kube_cluster: 'KubeCluster', action: KubeClusterAction = KubeClusterAction.create):
-    template_title = f'Cluster {kube_cluster.cluster_attributes.name} Master VMs'
-    print(crayons.cyan(template_title))
-    print(crayons.cyan('=' * len(template_title)))
+    masters_title = f'Cluster {kube_cluster.cluster_attributes.name} Master VMs'
+    print(crayons.cyan(masters_title))
+    print(crayons.cyan('=' * len(masters_title)))
     print('')
-    symbol = get_action_symbol(action)
+    common_instance_clones(kube_cluster.masters, action=action, role='master')
 
-    for master in kube_cluster.masters:
+
+def output_worker_groups(kube_cluster: 'KubeCluster', action: KubeClusterAction = KubeClusterAction.create):
+    workers_title = f'Cluster {kube_cluster.cluster_attributes.name} Worker Groups VMs'
+    print(crayons.cyan(workers_title))
+    print(crayons.cyan('=' * len(workers_title)))
+    print('')
+
+    for role, workers in kube_cluster.workers.items():
+        group_title = f'Group {role}'
+        print(crayons.cyan(group_title))
+        print(crayons.cyan('-' * len(group_title)))
+        print('')
+        common_instance_clones(workers, action=action, role=role)
+
+
+def common_instance_clones(instances: List['InstanceClone'], action: KubeClusterAction = KubeClusterAction.create, role='master'):
+    symbol = get_action_symbol(action)
+    for instance in instances:
         if action == KubeClusterAction.create:
             vmid = crayons.magenta('[Known after apply]')
         else:
-            vmid = crayons.yellow(master.vmid)
+            vmid = crayons.yellow(instance.vmid)
         print(create_update_or_delete(msg=symbol, action=action))
-        print(create_update_or_delete(f'*** {master.vm_attributes.name} ***', action=action))
-        print(crayons.blue('Role: ') + crayons.yellow('master'))
-        print(create_update_or_delete('Proxmox Node: ', action=action) + crayons.yellow(master.vm_attributes.node))
-        print(create_update_or_delete(f'Username: ', action=action) + crayons.yellow(f'{master.username}'))
+        print(create_update_or_delete(f'*** {instance.vm_attributes.name} ***', action=action))
+        print(crayons.blue('Role: ') + crayons.yellow(role))
+        print(create_update_or_delete('Proxmox Node: ', action=action) + crayons.yellow(instance.vm_attributes.node))
+        print(create_update_or_delete(f'Username: ', action=action) + crayons.yellow(f'{instance.username}'))
         print(create_update_or_delete('VMID: ', action=action) + vmid)
-        vm_output_helper(master.vm_attributes, action=action)
+        vm_output_helper(instance.vm_attributes, action=action)
+        vm_output_hotplug_helper(instance, action=action)
         print('')
 
 
@@ -186,7 +204,7 @@ def vm_output_helper(vm: VMAttributes, action: KubeClusterAction = KubeClusterAc
 def vm_output_hotplug_helper(vm: 'InstanceClone', action: KubeClusterAction = KubeClusterAction.create):
     hotplug = 'Yes' if vm.hotplug_disk_size else 'No'
     print(
-        crayons.white('Hotplug: ') +
+        create_update_or_delete(msg='Hotplug: ', action=action) +
         colorize_yes_or_no(msg=hotplug, yes=(hotplug == 'Yes'))
     )
     if vm.hotplug_disk_size:

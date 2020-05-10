@@ -116,11 +116,12 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
             print(crayons.green(f'Image {self.cloud_image} imported successfully.'))
 
     def execute(
-            self,
-            kubernetes_version='1.16.3-00',
-            docker_version='18.09.7',
-            storageos_requirements=False,
-            destroy=False
+        self,
+        kubernetes_version='1.16.3-00',
+        docker_version='18.09.7',
+        docker_ce=False,
+        storageos_requirements=False,
+        destroy=False
     ):
         if destroy:
             self.stop_stage(cloudinit=True)
@@ -163,6 +164,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
                 filename=self.filename,
                 kubernetes_version=kubernetes_version,
                 docker_version=docker_version,
+                docker_ce=docker_ce,
                 storageos_requirements=storageos_requirements
             )
             time.sleep(5)
@@ -200,16 +202,18 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
         return template_vmid, username
 
     def execute(
-            self,
-            kubernetes_version='1.16.3-00',
-            docker_version='18.09.7',
-            storageos_requirements=False,
-            destroy=False
+        self,
+        kubernetes_version='1.16.3-00',
+        docker_version='18.09.7',
+        docker_ce=False,
+        storageos_requirements=False,
+        destroy=False
     ):
         suffix = '-0ubuntu1~18.04.4'
         super().execute(
             kubernetes_version=kubernetes_version,
             docker_version=f'{docker_version}{suffix}',
+            docker_ce=docker_ce,
             storageos_requirements=storageos_requirements,
             destroy=destroy
         )
@@ -255,15 +259,17 @@ class CentosCloudInitTemplate(CloudinitTemplate):
         return template_vmid, username
 
     def execute(
-            self,
-            kubernetes_version='1.16.3-00',
-            docker_version='18.09.7',
-            storageos_requirements=False,
-            destroy=False
+        self,
+        kubernetes_version='1.16.3-00',
+        docker_version='18.09.7',
+        docker_ce=False,
+        storageos_requirements=False,
+        destroy=False
     ):
         super().execute(
             kubernetes_version=kubernetes_version,
             docker_version=docker_version,
+            docker_ce=docker_ce,
             storageos_requirements=storageos_requirements,
             destroy=destroy
         )

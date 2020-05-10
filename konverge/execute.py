@@ -155,11 +155,5 @@ def execute():
     kube_config = KubeClusterConfigFile().serialize()
     kube_config_client = KubeCluster(kube_config)
     if kube_config_client:
-        kube_config_client.show()
-
-    # print(kube_config_client.template)
-    # print(kube_config_client.template.get('vhost').vm_attributes.name)
-    # print(kube_config_client.template.get('vhost').vmid)
-    # print(kube_config_client.masters)
-    # print(kube_config_client.workers)
+        kube_config_client.plan()
 

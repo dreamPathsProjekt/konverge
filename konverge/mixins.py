@@ -327,6 +327,7 @@ class CommonVMMixin:
             filename='req_ubuntu.sh',
             kubernetes_version='1.16.3-00',
             docker_version='18.09.7',
+            docker_ce=False,
             storageos_requirements=False
     ):
         local = LOCAL
@@ -342,6 +343,7 @@ class CommonVMMixin:
         local_dashboard_path = os.path.join(settings.BASE_PATH, f'bootstrap/{dashboard_file}')
         local_daemon_path = os.path.join(settings.BASE_PATH, f'bootstrap/{daemon_file}')
         remote_path = f'/opt/kube/bootstrap'
+        docker_flavour = 'DOCKER_CE=1' if docker_ce else ''
 
         print(crayons.white(f'Current workdir: {settings.BASE_PATH}'))
 
@@ -359,7 +361,7 @@ class CommonVMMixin:
         print(crayons.cyan(f'Kubernetes Version: {kubernetes_version}. Docker Version: {docker_version}'))
         template_host.execute(f'chmod +x {remote_path}/{file}')
         installed = template_host.execute(
-            f'DAEMON_JSON_LOCATION={remote_path} KUBE_VERSION={kubernetes_version} DOCKER_VERSION={docker_version} {remote_path}/{file}',
+            f'DAEMON_JSON_LOCATION={remote_path} KUBE_VERSION={kubernetes_version} DOCKER_VERSION={docker_version} {docker_flavour} {remote_path}/{file}',
             warn=True
         )
         if installed.ok:

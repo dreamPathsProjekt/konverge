@@ -1,4 +1,5 @@
 import logging
+import time
 import crayons
 from typing import NamedTuple
 from functools import singledispatch
@@ -15,7 +16,7 @@ from konverge.utils import (
     get_id_prefix
 )
 from konverge import output
-from konverge.kube import ControlPlaneDefinitions, KubeExecutor
+from konverge.kube import ControlPlaneDefinitions, KubeExecutor, KubeProvisioner
 from konverge.cloudinit import CloudinitTemplate
 from konverge.instance import InstanceClone
 from konverge.queries import VMQuery
@@ -36,10 +37,13 @@ class ClusterAttributes(NamedTuple):
     os_type: str = 'ubuntu'
     user: str = None
     context: str = None
+    dashboard: bool = True
     storage: KubeStorage = None
     loadbalancer: bool = True
     version: str = None
     docker: str = None
+    docker_ce: bool = False
+
     helm: HelmAtrributes = HelmAtrributes()
 
 
@@ -67,6 +71,15 @@ class KubeCluster:
             return settings.pve_cluster_config_client.loadbalancer_ip_range_to_string_or_list()
         return ''
 
+    @property
+    def masters_leader(self):
+        return self.masters[0] if self.masters else None
+
+    @property
+    def masters_joiners(self):
+        predicate = self.masters and self.control_plane.ha_masters and len(self.masters) > 1
+        return self.masters[1:] if predicate else []
+
     def _get_template_creation(self):
         template_config = self.cluster_config.get(VMCategory.template.value)
         create = template_config.get('create')
@@ -75,14 +88,17 @@ class KubeCluster:
         return True
 
     def _serialize_cluster_attributes(self):
+        # TODO: Support preinstall option as argument, during generation. Methods cover it.
         os_type = self.cluster_config.get('os_type') or 'ubuntu'
         user = self.cluster_config.get('user')
         context = self.cluster_config.get('context')
+        dashboard = self.cluster_config.get('dashboard', True) or True
         storage = KubeStorage.return_value(self.cluster_config.get('storage'))
         loadbalancer = self.cluster_config.get('loadbalancer') or True
 
         versions = self.cluster_config.get('versions')
         docker = None
+        docker_ce = False
         if not versions:
             version = None
         else:
@@ -114,10 +130,12 @@ class KubeCluster:
             os_type=os_type,
             user=user,
             context=context,
+            dashboard=dashboard,
             storage=storage,
             loadbalancer=loadbalancer,
             version=version,
             docker=docker,
+            docker_ce=docker_ce,
             helm=helm
         )
 
@@ -203,11 +221,34 @@ class KubeCluster:
         return False
 
     @staticmethod
-    def generate_template(template_attributes: VMAttributes):
+    def generate_template(template_attributes: VMAttributes, preinstall=True):
         factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
-        return factory(vm_attributes=template_attributes, client=settings.vm_client)
+        return factory(vm_attributes=template_attributes, client=settings.vm_client, preinstall=preinstall)
+
+    @staticmethod
+    def update_vmid(instance: InstanceClone):
+        """
+        Update VMID field of instance attributes, dynamically,
+        to avoid the same VMIDs, during initialization.
+        Can be refactored on InstanceClone.execute()
+        """
+        vmid, _ = instance.get_vmid_and_username()
+        instance.vmid = vmid
+
+    @staticmethod
+    def sleep(duration=120, reason='N/A'):
+        print(crayons.cyan(f'Sleep for {duration} seconds. Reason: {reason}'))
+        time.sleep(duration)
+
+    @staticmethod
+    def is_action_create(action=KubeClusterAction.create):
+        return action == KubeClusterAction.create
 
     def cluster_exists(self):
+        """
+        Checks local ~/.kube/config from KubeExecutor.cluster_exists(cluster),
+        to determine, if cluster has been already created.
+        """
         kube_executor = KubeExecutor()
         if kube_executor.cluster_exists(self):
             logging.warning(crayons.yellow(f'Cluster {self.cluster_attributes.name} exists.'))
@@ -215,7 +256,8 @@ class KubeCluster:
         return False
 
     def initialize(self):
-        print(crayons.cyan(f'Getting initial requirements for cluster: {self.cluster_attributes.name}'))
+        """Initializes all necessary instances and updates related attributes"""
+        print(crayons.cyan(f'Gathering initial requirements for cluster: {self.cluster_attributes.name}'))
         templates = self.get_template_vms()
         if self.vms_response_is_empty(templates, category=VMCategory.template):
             return
@@ -229,6 +271,81 @@ class KubeCluster:
             self.workers = workers
         print(crayons.green(f'Cluster: {self.cluster_attributes.name} initialized.'))
 
+    def show(self, action: KubeClusterAction = KubeClusterAction.create):
+        output.output_cluster(self)
+        output.output_config(self)
+        output.output_control_plane(self)
+        output.output_tools_settings(self)
+        output.output_templates(self, action=action) if self.template else None
+        output.output_masters(self, action=action) if self.masters else None
+        output.output_worker_groups(self, action=action) if self.workers else None
+
+    def plan(self, action=KubeClusterAction.create):
+        self.show(action=action) if not self.cluster_exists() else None
+        return self.cluster_exists()
+
+    def action_factory(self, action=KubeClusterAction.create):
+        actions = {
+            KubeClusterAction.create.value: self.create,
+            KubeClusterAction.update.value: self.update,
+            KubeClusterAction.delete.value: self.delete,
+            KubeClusterAction.recreate.value: self.recreate
+        }
+        return actions[action.value]
+
+    def is_abort(self, action=KubeClusterAction.create):
+        """
+        Runs plan method to determine if cluster exists and show plan output if not.
+        :returns True if apply action is to be aborted.
+        """
+        exists = self.plan(action)
+        if self.is_action_create(action) and exists:
+            logging.error(crayons.red(f'Apply {action.value} aborted.'))
+            logging.error(crayons.red(f'Cluster {self.cluster_attributes.name} exists.'))
+            return True
+        if not self.is_action_create(action) and not exists:
+            logging.error(crayons.red(f'Apply {action.value} aborted.'))
+            logging.error(crayons.red(f'Cluster {self.cluster_attributes.name} exists.'))
+            return True
+        return False
+
+    def apply(self, action=KubeClusterAction.create):
+        """Executes only create action before other actions are implemented."""
+        # TODO: Determine action dynamically, from code at another stage, instead of argument action.
+        if self.is_abort(action):
+            return
+        if not self.is_action_create(action):
+            logging.warning(crayons.yellow(f'Cluster {action.value} not implemented yet.'))
+            return
+        execute = self.action_factory(action)
+        execute()
+
+    def create(self):
+        template_vmid_list = self.execute_templates()
+        masters_vmid_list = self.execute_masters()
+        workers_vmid_list = self.execute_workers()
+        template_vmid_str = ' '.join(template_vmid_list)
+        masters_vmid_str = ' '.join(masters_vmid_list)
+
+        create_title = 'Created & Started'
+        print(crayons.blue(create_title))
+        print(crayons.blue('=' * len(create_title)))
+        print(crayons.white(f'Templates VMID: ') + crayons.yellow(template_vmid_str))
+        print(crayons.white(f'Masters VMID: ') + crayons.yellow(masters_vmid_str))
+        for role, workers in workers_vmid_list.items():
+            print(crayons.white(f'Workers {role} VMID') + crayons.yellow(workers))
+        print('')
+
+        self.sleep(duration=120, reason=f'Wait all Cluster {self.cluster_attributes.name} VMs to initialize')
+
+        self.boostrap_control_plane()
+        self.join_workers()
+        self.post_installs()
+        return template_vmid_list, masters_vmid_list, workers_vmid_list
+
+    def delete(self):
+        pass
+
     def retrieve(self):
         # TODO: Query vms if cluster exists.
         pass
@@ -236,29 +353,148 @@ class KubeCluster:
     def update(self):
         pass
 
-    def show(self, action: KubeClusterAction = KubeClusterAction.create):
-        output.output_cluster(self)
-        output.output_config(self)
-        output.output_control_plane(self)
-        output.output_tools_settings(self)
-        output.output_templates(self, action=action)
-        output.output_masters(self, action=action)
-        # TODO: Implement worker groups.
+    def recreate(self):
+        pass
 
-    def plan(self):
-        if not self.cluster_exists():
-            self.show(action=KubeClusterAction.create)
+    def execute_templates(self):
+        """Creates Cloudinit templates from scratch, or reuses templates if VMIDs exist on node."""
+        template_vmids = []
+        if self.template_creation:
+            for node, template in self.template.items():
+                template_vmids.append(
+                    template.execute(
+                        kubernetes_version=self.cluster_attributes.version,
+                        docker_version=self.cluster_attributes.docker,
+                        docker_ce=self.cluster_attributes.docker_ce
+                    )
+                )
+        else:
+            logging.warning(crayons.yellow('Template generation skipped.'))
+            for node, template in self.template.items():
+                template_vmids.append(template.vmid)
+        return template_vmids
+
+    def execute_masters(self):
+        """Template unpacking per node is done, during initialization"""
+        masters_vmids = []
+        for master in self.masters:
+            self.update_vmid(master)
+            masters_vmids.append(master.execute(start=True))
+        return masters_vmids
+
+    def execute_workers_group(self, workers: list):
+        group_vmids = []
+        for worker in workers:
+            self.update_vmid(worker)
+            group_vmids.append(worker.execute(start=True))
+        return group_vmids
+
+    def execute_workers(self):
+        """Template unpacking per node is done, during initialization"""
+        workers_vmids = {}
+        for role, workers in self.workers.items():
+            workers_vmids[role] = self.execute_workers_group(workers)
+        return workers_vmids
+
+    def get_master_provisioners(self):
+        provision = KubeProvisioner.kube_provisioner_factory(
+            os_type=self.masters_leader.vm_attributes.os_type
+        )
+        leader_provisioner = provision(
+            instance=self.masters_leader,
+            control_plane=self.control_plane
+        )
+        if self.control_plane.ha_masters:
+            join_provisioners = [
+                provision(instance=master_node, control_plane=self.control_plane)
+                for master_node in self.masters_joiners
+            ]
+            return leader_provisioner, join_provisioners
+        return leader_provisioner, []
+
+    def get_workers_provisioners(self):
+        provision = KubeProvisioner.kube_provisioner_factory(
+            os_type=self.masters_leader.vm_attributes.os_type
+        )
+        return {
+            role: [
+                provision(instance=worker, control_plane=self.control_plane)
+                for worker in group
+            ]
+            for role, group in self.workers.items()
+        }
+
+    def execute_control_plane_lb(self):
+        leader, joiners = self.get_master_provisioners()
+        if not self.control_plane.ha_masters:
+            logging.warning(
+                crayons.yellow(f'Skip control plane loadbalancer install for non-HA masters.')
+            )
+            return True
+
+        self.control_plane.apiserver_ip = leader.install_control_plane_loadbalancer(is_leader=True)
+        if not self.control_plane.apiserver_ip:
+            logging.error(
+                crayons.red(f'Error during control plane generated virtual ip: {self.control_plane.apiserver_ip}')
+            )
+            return False
+
+        for joiner in joiners:
+            joiner.install_control_plane_loadbalancer(is_leader=False)
+        return True
+
+    def boostrap_control_plane(self):
+        leader, joiners = self.get_master_provisioners()
+        ready = self.execute_control_plane_lb()
+        if not ready:
+            logging.error(crayons.red('Abort bootstrapping control plane phase.'))
             return
-        logging.warning(crayons.yellow('Cluster update not implemented yet.'))
 
-    def apply(self):
-        pass
+        cert_key = leader.bootstrap_control_plane()
+        if self.control_plane.ha_masters:
+            for joiner in joiners:
+                joiner.join_node(self.masters_leader, control_plane_node=True, certificate_key=cert_key)
 
-    def delete(self):
-        pass
+    def join_workers(self):
+        workers = self.get_workers_provisioners()
+        for role, group in workers.items():
+            for worker in group:
+                worker.join_node(leader=self.masters_leader, control_plane_node=False)
+
+    def post_installs(self):
+        # TODO: Support loadbalancer arguments yaml file, version, interface, from .cluster.yml
+        leader_executor = KubeExecutor(wrapper=self.masters_leader.self_node)
+        leader_executor.add_local_cluster_config(
+            custom_user_name=self.cluster_attributes.user,
+            custom_cluster_name=self.cluster_attributes.name,
+            custom_context=self.cluster_attributes.context,
+            set_current_context=True
+        )
+
+        if self.cluster_attributes.dashboard:
+            leader_executor.deploy_dashboard(local=False)
+
+        for role, workers in self.workers.items():
+            for worker in workers:
+                leader_executor.apply_label_node(role=role, instance_name=worker.vm_attributes.name)
+
+        # TODO: Determine patch value for helm_install_v2 from kube version.
+        if self.cluster_attributes.helm.local or self.cluster_attributes.helm.tiller:
+            if self.cluster_attributes.helm.version == HelmVersion.v2:
+                leader_executor.helm_install_v2(
+                    helm=self.cluster_attributes.helm.local,
+                    tiller=self.cluster_attributes.helm.tiller
+                )
+            else:
+                msg = f'Helm Version {self.cluster_attributes.helm.version.value} not supported yet.'
+                logging.warning(crayons.yellow(msg))
+
+        if self.cluster_attributes.loadbalancer:
+            leader_executor.metallb_install()
+
+        # TODO: Storage feature.
 
     def get_template_vms(self, preinstall=True):
-        # TODO: Support preinstall option as argument, on other calling methods & generation.
         create = self.template_creation
 
         templates = {}
@@ -288,7 +524,7 @@ class KubeCluster:
                     )
                     logging.error(crayons.red(err))
                     return {}
-                template = self.generate_template(template_attributes)
+                template = self.generate_template(template_attributes, preinstall=preinstall)
                 templates[template_attributes.node] = template
         return templates
 
@@ -302,7 +538,9 @@ class KubeCluster:
             )
             logging.warning(crayons.yellow(warning))
             valid_templates = [vm for vm in template_query if vm.vmid == template_vmid]
-            return valid_templates[0] if valid_templates else self.generate_template(template_attributes)
+            return valid_templates[0] if valid_templates else self.generate_template(
+                template_attributes, preinstall=preinstall
+            )
         else:
             return template_query[0]
 
@@ -312,6 +550,7 @@ class KubeCluster:
         to be filled with InstanceClone.generate_vmid_and_username(),
         dynamically at creation time (apply).
         Avoids multiple VMs to retrieve the same vmid, during initialization.
+        Template matching for vm, per node is done, by self.get_vms() method.
         """
         disk = self.cluster_config.get(VMCategory.masters.value).get('disk')
         username = self.cluster_config.get(VMCategory.masters.value).get('username')

@@ -181,6 +181,7 @@ KUBE_CLUSTER_SCHEMA = {
             },
             'required': []
         },
+        'dashboard': {'type': 'boolean'},
         'storage': {
             'type': ['string', 'null'],
             'pattern': '^(rook|nfs|glusterfs)$'
