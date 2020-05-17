@@ -162,6 +162,23 @@ class VMAttributes:
         self.gateway = gateway
 
     @property
+    def ssh_keyname(self):
+        return self._ssh_keyname
+
+    @ssh_keyname.setter
+    def ssh_keyname(self, ssh_keyname):
+        from konverge import settings
+
+        if '~' in ssh_keyname:
+            parts = ssh_keyname.split(os.path.sep)
+            parts.remove('~')
+            self._ssh_keyname = os.path.join(settings.HOME_DIR, *parts)
+        elif os.sep not in ssh_keyname:
+            self._set_ssh_keyname_from_default_location(settings=settings, ssh_keyname=ssh_keyname)
+        else:
+            self._ssh_keyname = ssh_keyname
+
+    @property
     def description_os_type(self):
         if self.description and 'Ubuntu' in  self.description:
             return 'ubuntu'
@@ -192,6 +209,15 @@ class VMAttributes:
     @property
     def private_pem_ssh_key_exists(self):
         return os.path.exists(self.private_pem_ssh_key)
+
+    @property
+    def private_key_or_pem_ssh_key_exists(self):
+        return self.private_key_exists or self.private_pem_ssh_key_exists
+
+    def _set_ssh_keyname_from_default_location(self, settings, ssh_keyname):
+        self._ssh_keyname = os.path.join(settings.WORKDIR, ssh_keyname)
+        if not self.public_key_exists or not self.private_key_or_pem_ssh_key_exists:
+            self._ssh_keyname =  os.path.join(settings.HOME_DIR, '.ssh', ssh_keyname)
 
     def read_public_key(self):
         if not self.public_key_exists:

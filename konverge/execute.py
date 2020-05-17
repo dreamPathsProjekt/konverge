@@ -24,7 +24,7 @@ def execute():
         os_type='ubuntu',
         storage_type=Storage.nfs,
         image_storage_type=Storage.nfs,
-        ssh_keyname='/home/dritsas/.ssh/vhost3-vms',
+        ssh_keyname='~/.ssh/vhost3-vms',
         gateway='10.0.100.105'
     )
     ubuntu_template_factory = CloudinitTemplate.os_type_factory(template_attributes.os_type)
@@ -155,5 +155,5 @@ def execute():
     kube_config = KubeClusterConfigFile().serialize()
     kube_config_client = KubeCluster(kube_config)
     if kube_config_client:
-        kube_config_client.plan(action=KubeClusterAction.delete)
+        kube_config_client.apply(action=KubeClusterAction.create)
 

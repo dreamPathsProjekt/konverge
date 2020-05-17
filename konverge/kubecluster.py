@@ -248,6 +248,14 @@ class KubeCluster:
     def is_action_delete(action=KubeClusterAction.delete):
         return action == KubeClusterAction.delete
 
+    @staticmethod
+    def is_action_recreate(action=KubeClusterAction.recreate):
+        return action == KubeClusterAction.recreate
+
+    @staticmethod
+    def is_action_update(action=KubeClusterAction.update):
+        return action == KubeClusterAction.update
+
     def destroy_warning(self, destroy=False):
         msg = f'Deleting Cluster {self.cluster_attributes.name} templates.'
         logging.warning(crayons.yellow(msg)) if destroy else None
@@ -312,6 +320,7 @@ class KubeCluster:
     def is_abort(self, action=KubeClusterAction.create, template=False):
         """
         Runs plan method to determine if cluster exists and show plan output if not.
+        Option template is used for delete|recreate actions.
         :returns True if apply action is to be aborted.
         """
         exists = self.plan(action, template=template)
@@ -329,7 +338,7 @@ class KubeCluster:
         """Executes only create, delete actions before other actions are implemented."""
         if self.is_abort(action):
             return
-        if not self.is_action_create(action) or not self.is_action_delete(action):
+        if self.is_action_update(action):
             logging.warning(crayons.yellow(f'Cluster {action.value} not implemented yet.'))
             return
         execute = self.action_factory(action)
@@ -373,6 +382,7 @@ class KubeCluster:
         if rollback_only:
             return
 
+        logging.warning(crayons.yellow('Removing Proxmox VMs'))
         workers_vmid_list = self.execute_workers(destroy=True)
         masters_vmid_list = self.execute_masters(destroy=True)
 
@@ -388,7 +398,7 @@ class KubeCluster:
         if not template:
             return
 
-        logging.warning(crayons.yellow('Deleting Templates'))
+        logging.warning(crayons.yellow('Removing Templates'))
         template_vmid_list = self.execute_templates(destroy=True)
         template_vmid_str = ' '.join(template_vmid_list)
         print(crayons.blue(remove_title))
@@ -399,8 +409,9 @@ class KubeCluster:
     def update(self):
         pass
 
-    def recreate(self):
-        pass
+    def recreate(self, template=False):
+        self.delete(template=template)
+        self.create()
 
     def execute_templates(self, destroy=False):
         """Creates Cloudinit templates from scratch, or reuses templates if VMIDs exist on node."""

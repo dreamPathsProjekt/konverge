@@ -274,7 +274,6 @@ class CommonVMMixin:
                 vm_ip=None,
                 gateway=None
             )
-
         if not self.vm_attributes.public_key_exists:
             logging.error(crayons.red(f'Public key: {self.vm_attributes.public_ssh_key} does not exist. Abort'))
             return
@@ -386,9 +385,12 @@ class ExecuteStagesMixin:
     remove_ssh_config_entry: callable
 
     def start_stage(self, cloudinit=False):
+        # TODO: Implement template rollback. Implemented on instance.
         print(crayons.cyan(f'Stage: Start VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         if cloudinit:
-            self.inject_cloudinit_values()
+            cloudinit_response = self.inject_cloudinit_values()
+            if not cloudinit_response:
+                return
         started = self.start_vm()
         if started:
             print(crayons.green(f'Start VM {self.vm_attributes.name} {self.vmid}: Success'))

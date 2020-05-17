@@ -12,6 +12,7 @@ from konverge.files import KubeClusterConfigFile
 
 BASE_PATH = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 WORKDIR = os.path.abspath(subprocess.check_output('pwd', universal_newlines=True).strip())
+HOME_DIR = os.path.expanduser('~')
 
 CNI = {
     'flannel': 'https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml',
