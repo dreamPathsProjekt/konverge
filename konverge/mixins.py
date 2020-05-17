@@ -1,5 +1,4 @@
 import os
-import time
 import crayons
 import logging
 
@@ -13,6 +12,7 @@ from konverge.utils import (
     add_ssh_config_entry,
     remove_ssh_config_entry,
     clear_server_entry,
+    sleep_intervals,
     LOCAL
 )
 from konverge import settings
@@ -267,13 +267,14 @@ class CommonVMMixin:
 
     def inject_cloudinit_values(self, invalidate=False):
         if invalidate:
-            return self.client.inject_vm_cloudinit(
+            self.client.inject_vm_cloudinit(
                 node=self.vm_attributes.node,
                 vmid=self.vmid,
                 ssh_key_content=None,
                 vm_ip=None,
                 gateway=None
             )
+            return
         if not self.vm_attributes.public_key_exists:
             logging.error(crayons.red(f'Public key: {self.vm_attributes.public_ssh_key} does not exist. Abort'))
             return
@@ -287,7 +288,7 @@ class CommonVMMixin:
         gateway = self.vm_attributes.gateway if self.vm_attributes.gateway else settings.pve_cluster_config_client.gateway
 
         print(crayons.blue(f'Inject cloudinit values ipconfig: ip={self.allowed_ip}, gateway={gateway}, sshkeys: {self.vm_attributes.public_ssh_key}'))
-        return self.client.inject_vm_cloudinit(
+        self.client.inject_vm_cloudinit(
             node=self.vm_attributes.node,
             vmid=self.vmid,
             ssh_key_content=self.vm_attributes.read_public_key(),
@@ -384,21 +385,23 @@ class ExecuteStagesMixin:
     inject_cloudinit_values: callable
     remove_ssh_config_entry: callable
 
-    def start_stage(self, cloudinit=False):
-        # TODO: Implement template rollback. Implemented on instance.
+    def start_stage(self, cloudinit=False, wait_minutes=4):
+        wait_period = wait_minutes * 60
+        sleep_interval = 5
+
         print(crayons.cyan(f'Stage: Start VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         if cloudinit:
-            cloudinit_response = self.inject_cloudinit_values()
-            if not cloudinit_response:
-                return
+            self.inject_cloudinit_values()
+
         started = self.start_vm()
         if started:
             print(crayons.green(f'Start VM {self.vm_attributes.name} {self.vmid}: Success'))
         else:
             logging.error(crayons.red(f'VM {self.vm_attributes.name} {self.vmid} failed to start'))
             return
-        print(crayons.cyan(f'Stage: Waiting 2 min. for VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} to initialize.'))
-        time.sleep(120)
+
+        print(crayons.cyan(f'Stage: Waiting {wait_period / 60} minutes, for VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} to initialize.'))
+        sleep_intervals(wait_period=wait_period, sleep_interval=sleep_interval)
         print(crayons.green(f'VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} initialized.'))
 
     def stop_stage(self, cloudinit=False):

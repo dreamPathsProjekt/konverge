@@ -217,7 +217,7 @@ class VMAPIClient(ProxmoxAPIClient):
         node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).template.post()
 
-    def clone_vm_from_template(self, node, source_vmid, target_vmid, name='', description=''):
+    def clone_vm_from_template(self, node, source_vmid, target_vmid, name='', description='', pool=''):
         """
         Parameter full creates a full disk clone of VM. For templates default is False: creates a linked clone.
         """
@@ -226,7 +226,8 @@ class VMAPIClient(ProxmoxAPIClient):
         return qemu_instance.clone.create(
             newid=target_vmid,
             name=name,
-            description=description
+            description=description,
+            pool=pool
         )
 
     def backup_vm(
@@ -337,20 +338,22 @@ class VMAPIClient(ProxmoxAPIClient):
 
     def inject_vm_cloudinit(self, node, vmid, ssh_key_content, vm_ip, gateway, netmask='24'):
         if ssh_key_content and vm_ip and gateway:
-            return self.update_vm_config(
+            self.update_vm_config(
                 node=node,
                 vmid=vmid,
                 sshkeys=urllib.parse.quote(ssh_key_content, safe=''),
                 ipconfig0=f'ip={vm_ip}/{netmask},gw={gateway}'
             )
-        elif ssh_key_content and (not vm_ip or not gateway):
+            return
+        if ssh_key_content and (not vm_ip or not gateway):
             self.update_vm_config(
                 node=node,
                 vmid=vmid,
                 sshkeys=urllib.parse.quote(ssh_key_content, safe=''),
                 delete='ipconfig0'
             )
-        return self.update_vm_config(
+            return
+        self.update_vm_config(
             node=node,
             vmid=vmid,
             delete='sshkeys,ipconfig0'

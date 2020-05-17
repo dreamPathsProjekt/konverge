@@ -156,4 +156,3 @@ def execute():
     kube_config_client = KubeCluster(kube_config)
     if kube_config_client:
         kube_config_client.apply(action=KubeClusterAction.create)
-

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+MAX_RETRIES=10
+WAIT_PERIOD=5
+
 if [[ -z "${DAEMON_JSON_LOCATION}" ]]; then
     DAEMON_JSON_LOCATION=/opt/kube/bootstrap
 fi
@@ -16,8 +19,16 @@ fi
 curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
 sudo apt-add-repository -y "deb http://apt.kubernetes.io/ kubernetes-xenial main"
 
+#Handle /var/lib/dpkg/lock until cloudinit upgrade has finished.
 # Install qemu-guest-agent
-sudo apt-get install -y qemu-guest-agent
+counter=0
+until sudo apt-get update && sudo apt-get install -y qemu-guest-agent
+do
+    sleep $WAIT_PERIOD
+    [[ counter -eq $MAX_RETRIES ]] && echo "Failed!" && exit 1
+    echo "Trying again. Try #$counter"
+    (( counter++ ))
+done
 
 # Install required packages
 if [[ -z "${DOCKER_CE}" ]]; then

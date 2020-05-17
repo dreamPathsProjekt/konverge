@@ -29,7 +29,11 @@ class VMQuery:
         self.match_pool = lambda vm: self.pool == vm.get('pool')
 
     def instance_name(self, vm):
+        import crayons
+
         config = self.client.get_vm_config(node=vm.get('node'), vmid=vm.get('vmid'))
+        name = config.get('name') if config else ''
+        print(crayons.green(f'Found: {name}'))if self.name in name else print(crayons.white(f'Not match: {name}'))
         return config.get('name') if config else ''
 
     def get_storage_type_from_volume(self, config, driver='virtio0'):
@@ -44,10 +48,12 @@ class VMQuery:
 
     def filter_by_name_or_pool(self, instances):
         predicate = lambda vm: True
-        if self.name:
-            predicate = lambda vm: self.find_name(vm) and (self.match_pool(vm) if self.pool else True)
-        if self.pool:
-            predicate = lambda vm: self.match_pool(vm) and (self.find_name(vm) if self.name else True)
+        if self.name and self.pool:
+            predicate = lambda vm: self.find_name(vm) and self.match_pool
+        elif self.name:
+            predicate = lambda vm: self.find_name(vm)
+        elif self.pool:
+            predicate = lambda vm: self.match_pool(vm)
         return filter(predicate, instances)
 
     def filter_by_vmid_node_or_template(self, instances, node=None, vmid=None, template=False):
@@ -150,6 +156,7 @@ class VMQuery:
         return instance
 
     def execute(self, node=None, vmid=None, template=False):
+        print('Trying to match results...')
         filtered_clones = self.filter_by_vmid_node_or_template(
             self.filter_by_name_or_pool(self.all_vms),
             node=node,

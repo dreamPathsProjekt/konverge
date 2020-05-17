@@ -158,7 +158,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         self.set_vga_display()
 
         if self.preinstall:
-            self.start_stage(cloudinit=True)
+            self.start_stage(cloudinit=True, wait_minutes=4)
             print(crayons.cyan(f'Stage: Install kubernetes pre-requisites from file {self.filename}'))
             self.install_kube(
                 filename=self.filename,
@@ -211,7 +211,7 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
         storageos_requirements=False,
         destroy=False
     ):
-        suffix = '-0ubuntu1~18.04.4'
+        suffix = '-0ubuntu1~18.04.4' if 'ubuntu' not in docker_version else ''
         super().execute(
             kubernetes_version=kubernetes_version,
             docker_version=f'{docker_version}{suffix}',

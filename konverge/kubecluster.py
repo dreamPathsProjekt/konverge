@@ -1,5 +1,4 @@
 import logging
-import time
 import crayons
 from typing import NamedTuple
 from functools import singledispatch
@@ -13,7 +12,8 @@ from konverge.utils import (
     VMAttributes,
     Storage,
     get_kube_versions,
-    get_id_prefix
+    get_id_prefix,
+    sleep_intervals
 )
 from konverge import output
 from konverge.kube import ControlPlaneDefinitions, KubeExecutor, KubeProvisioner
@@ -238,7 +238,7 @@ class KubeCluster:
     @staticmethod
     def sleep(duration=120, reason='N/A'):
         print(crayons.cyan(f'Sleep for {duration} seconds. Reason: {reason}'))
-        time.sleep(duration)
+        sleep_intervals(wait_period=duration)
 
     @staticmethod
     def is_action_create(action=KubeClusterAction.create):
@@ -321,12 +321,14 @@ class KubeCluster:
         }
         return actions[action.value]
 
-    def is_abort(self, action=KubeClusterAction.create):
+    def is_abort(self, action=KubeClusterAction.create, force=False):
         """
         Runs plan method to determine if cluster exists and show plan output if not.
         :returns True if apply action is to be aborted.
         """
         exists = self.plan(action)
+        if force:
+            return False
         if self.is_action_create(action) and exists:
             logging.error(crayons.red(f'Apply type: {action.value} aborted.'))
             logging.error(crayons.red(f'Cluster {self.cluster_attributes.name} exists.'))
@@ -337,11 +339,11 @@ class KubeCluster:
             return True
         return False
 
-    def apply(self, action=KubeClusterAction.create):
+    def apply(self, action=KubeClusterAction.create, force=False):
         """
         Executes only create, delete actions before other actions are implemented.
         """
-        if self.is_abort(action):
+        if self.is_abort(action, force=force):
             return
         if self.is_action_update(action):
             logging.warning(crayons.yellow(f'Cluster {action.value} not implemented yet.'))
@@ -353,14 +355,12 @@ class KubeCluster:
         template_vmid_list = self.execute_templates()
         masters_vmid_list = self.execute_masters()
         workers_vmid_list = self.execute_workers()
-        template_vmid_str = ' '.join(template_vmid_list)
-        masters_vmid_str = ' '.join(masters_vmid_list)
 
         create_title = 'Created & Started'
         print(crayons.blue(create_title))
         print(crayons.blue('=' * len(create_title)))
-        print(crayons.white(f'Templates VMID: ') + crayons.yellow(template_vmid_str))
-        print(crayons.white(f'Masters VMID: ') + crayons.yellow(masters_vmid_str))
+        print(crayons.white(f'Templates VMID: ') + crayons.yellow(template_vmid_list))
+        print(crayons.white(f'Masters VMID: ') + crayons.yellow(masters_vmid_list))
         for role, workers in workers_vmid_list.items():
             print(crayons.white(f'Workers {role} VMID') + crayons.yellow(workers))
         print('')
@@ -377,6 +377,7 @@ class KubeCluster:
         De-provisions & deletes cluster VMs. If template flag is used, it also deletes template vms.
         Option rollback_only, just removes nodes from the cluster, without deleting them.
         """
+        # TODO: Remove cluster .kube/config after rollback
         logging.warning(crayons.yellow('Performing Rollback of worker nodes'))
         self.rollback_workers()
         complete = crayons.green('Rollback Complete')
@@ -391,12 +392,10 @@ class KubeCluster:
         workers_vmid_list = self.execute_workers(destroy=True)
         masters_vmid_list = self.execute_masters(destroy=True)
 
-        masters_vmid_str = ' '.join(masters_vmid_list)
-
         remove_title = 'Stopped & Removed'
         print(crayons.blue(remove_title))
         print(crayons.blue('=' * len(remove_title)))
-        print(crayons.white(f'Masters VMID: ') + crayons.yellow(masters_vmid_str))
+        print(crayons.white(f'Masters VMID: ') + crayons.yellow(masters_vmid_list))
         for role, workers in workers_vmid_list.items():
             print(crayons.white(f'Workers {role} VMID') + crayons.yellow(workers))
         print('')
@@ -405,10 +404,9 @@ class KubeCluster:
 
         logging.warning(crayons.yellow('Removing Templates'))
         template_vmid_list = self.execute_templates(destroy=True)
-        template_vmid_str = ' '.join(template_vmid_list)
         print(crayons.blue(remove_title))
         print(crayons.blue('=' * len(remove_title)))
-        print(crayons.white(f'Templates VMID: ') + crayons.yellow(template_vmid_str))
+        print(crayons.white(f'Templates VMID: ') + crayons.yellow(template_vmid_list))
         print('')
 
     def update(self):
@@ -443,14 +441,14 @@ class KubeCluster:
         masters_vmids = []
         self.destroy_warning(destroy)
         for master in self.masters:
-            self.update_vmid(master)
+            self.update_vmid(master) if not destroy else None
             masters_vmids.append(master.execute(start=True, destroy=destroy))
         return masters_vmids
 
     def execute_workers_group(self, workers: list, destroy=False):
         group_vmids = []
         for worker in workers:
-            self.update_vmid(worker)
+            self.update_vmid(worker) if not destroy else None
             group_vmids.append(worker.execute(start=True, destroy=destroy))
         return group_vmids
 
@@ -525,7 +523,7 @@ class KubeCluster:
         leader, joiners = self.get_master_provisioners()
         for joiner in joiners:
             joiner.rollback_node()
-        self.sleep(duration=120, reason='Wait for Rollback to complete')
+        self.sleep(duration=60, reason='Wait for Rollback to complete')
         leader.rollback_node()
 
     def join_workers(self):
@@ -728,20 +726,17 @@ class KubeCluster:
             # Inherit template instance storage type.
             vm_attributes.storage_type = template.vm_attributes.storage_type
             if query:
-                clone = None
-                answer = self.query_vms(config=vm_attributes)
-                if answer:
-                    clone = answer[0]
-            else:
-                clone = InstanceClone(
-                    vm_attributes=vm_attributes,
-                    client=settings.vm_client,
-                    template=template,
-                    vmid=vmid,
-                    username=username
-                )
-                if hotplug_disk:
-                    clone.hotplug_disk_size = hotplug_disk_size
+                vm_attributes.name = vm_attributes.name.strip('-0')
+                return self.query_vms(config=vm_attributes)
+            clone = InstanceClone(
+                vm_attributes=vm_attributes,
+                client=settings.vm_client,
+                template=template,
+                vmid=vmid,
+                username=username
+            )
+            if hotplug_disk:
+                clone.hotplug_disk_size = hotplug_disk_size
             vms.append(clone) if clone else None
         return vms
 

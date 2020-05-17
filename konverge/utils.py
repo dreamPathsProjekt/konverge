@@ -1,6 +1,7 @@
 import logging
 import os
 import math
+import time
 from enum import Enum
 from functools import singledispatch
 from typing import Union
@@ -168,6 +169,10 @@ class VMAttributes:
     @ssh_keyname.setter
     def ssh_keyname(self, ssh_keyname):
         from konverge import settings
+
+        if ssh_keyname is None:
+            self._ssh_keyname = ssh_keyname
+            return
 
         if '~' in ssh_keyname:
             parts = ssh_keyname.split(os.path.sep)
@@ -379,6 +384,15 @@ def clear_server_entry(ip):
     except Exception as warning:
         logging.warning(crayons.yellow(f'{ip} not found on ~/.ssh/known_hosts'))
         logging.warning(crayons.white(warning))
+
+
+def sleep_intervals(wait_period=120, sleep_interval=5):
+    if wait_period == 0:
+        logging.warning(crayons.yellow('Wait period: No wait'))
+        return
+    for counter in range(0, wait_period, sleep_interval):
+        print(crayons.white('Time elapsed: ') + crayons.yellow(counter) + crayons.white(' seconds.'))
+        time.sleep(sleep_interval)
 
 
 def human_readable_disk_size(size):

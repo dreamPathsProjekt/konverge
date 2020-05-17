@@ -86,7 +86,8 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             source_vmid=self.template.vmid,
             target_vmid=self.vmid,
             name=self.vm_attributes.name,
-            description=self.vm_attributes.description
+            description=self.vm_attributes.description,
+            pool=self.template.vm_attributes.pool
         )
         if not self.log_create_delete(created):
             return created
@@ -146,12 +147,7 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
 
         print(crayons.cyan(f'Stage: Resize disk for VM: {self.vm_attributes.name} {self.vmid} to {self.vm_attributes.disk_size}'))
         self.set_instance_disk_size()
-        cloudinit_response = self.inject_cloudinit_values()
-        if not cloudinit_response:
-            print(crayons.cyan('Rollback Issued - Delete on abort'))
-            self.stop_vm()
-            self.destroy_vm()
-            return
+        self.inject_cloudinit_values()
 
         if self.hotplug_disk_size:
             print(crayons.cyan(f'Enable hotplug for VM: {self.vm_attributes.name} {self.vmid}'))
@@ -161,6 +157,6 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
 
         if start:
             print(crayons.cyan(f'Start requested - Starting VM: {self.vm_attributes.name} {self.vmid}'))
-            self.start_stage()
+            self.start_stage(wait_minutes=0)
 
         return self.vmid
