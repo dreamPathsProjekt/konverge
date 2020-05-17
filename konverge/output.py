@@ -16,9 +16,10 @@ def create_update_or_delete(msg: str, action: KubeClusterAction = KubeClusterAct
         return crayons.yellow(msg)
     if action == KubeClusterAction.delete or action == KubeClusterAction.recreate:
         return crayons.red(msg)
+    return crayons.white(msg)
 
 
-def get_action_symbol(action):
+def get_action_symbol(action: KubeClusterAction):
     if action == KubeClusterAction.create:
         return '+++'
     if action == KubeClusterAction.delete:
@@ -150,15 +151,23 @@ def output_templates(kube_cluster: 'KubeCluster', action: KubeClusterAction = Ku
         # print(crayons.white(f'  Allowed IP: {template.allowed_ip}'))
 
 
-def output_masters(kube_cluster: 'KubeCluster', action: KubeClusterAction = KubeClusterAction.create):
+def output_masters(
+        kube_cluster: 'KubeCluster',
+        action: KubeClusterAction = KubeClusterAction.create,
+        vmid_placeholder=9999
+):
     masters_title = f'Cluster {kube_cluster.cluster_attributes.name} Master VMs'
     print(crayons.cyan(masters_title))
     print(crayons.cyan('=' * len(masters_title)))
     print('')
-    common_instance_clones(kube_cluster.masters, action=action, role='master')
+    common_instance_clones(kube_cluster.masters, action=action, role='master', vmid_placeholder=vmid_placeholder)
 
 
-def output_worker_groups(kube_cluster: 'KubeCluster', action: KubeClusterAction = KubeClusterAction.create):
+def output_worker_groups(
+        kube_cluster: 'KubeCluster',
+        action: KubeClusterAction = KubeClusterAction.create,
+        vmid_placeholder=9999
+):
     workers_title = f'Cluster {kube_cluster.cluster_attributes.name} Worker Groups VMs'
     print(crayons.cyan(workers_title))
     print(crayons.cyan('=' * len(workers_title)))
@@ -169,13 +178,18 @@ def output_worker_groups(kube_cluster: 'KubeCluster', action: KubeClusterAction 
         print(crayons.cyan(group_title))
         print(crayons.cyan('-' * len(group_title)))
         print('')
-        common_instance_clones(workers, action=action, role=role)
+        common_instance_clones(workers, action=action, role=role, vmid_placeholder=vmid_placeholder)
 
 
-def common_instance_clones(instances: List['InstanceClone'], action: KubeClusterAction = KubeClusterAction.create, role='master'):
+def common_instance_clones(
+        instances: List['InstanceClone'],
+        action: KubeClusterAction = KubeClusterAction.create,
+        role='master',
+        vmid_placeholder=9999
+):
     symbol = get_action_symbol(action)
     for instance in instances:
-        if action == KubeClusterAction.create:
+        if instance.vmid == vmid_placeholder:
             vmid = crayons.magenta('[Known after apply]')
         else:
             vmid = crayons.yellow(instance.vmid)

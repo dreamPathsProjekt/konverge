@@ -63,7 +63,7 @@ class KubeCluster:
         self.template = None
         self.masters = None
         self.workers = None
-        self.retrieve() if self.cluster_exists() else self.initialize()
+        self.initialize()
 
     @property
     def metallb_range(self):
@@ -244,6 +244,10 @@ class KubeCluster:
     def is_action_create(action=KubeClusterAction.create):
         return action == KubeClusterAction.create
 
+    @staticmethod
+    def is_action_delete(action=KubeClusterAction.delete):
+        return action == KubeClusterAction.delete
+
     def destroy_warning(self, destroy=False):
         msg = f'Deleting Cluster {self.cluster_attributes.name} templates.'
         logging.warning(crayons.yellow(msg)) if destroy else None
@@ -260,32 +264,40 @@ class KubeCluster:
         return False
 
     def initialize(self):
-        """Initializes all necessary instances and updates related attributes"""
+        """
+        Initializes all necessary instances and updates related attributes.
+        Retrieve (query) vm groups if cluster exists.
+        """
         print(crayons.cyan(f'Gathering initial requirements for cluster: {self.cluster_attributes.name}'))
+        retrieve = self.cluster_exists()
+
         templates = self.get_template_vms()
         if self.vms_response_is_empty(templates, category=VMCategory.template):
             return
 
         self.template = templates
-        masters = self.get_masters_vms(self.template)
-        workers = self.get_workers_vms(self.template)
+        masters = self.get_masters_vms(self.template, retrieve=retrieve)
+        workers = self.get_workers_vms(self.template, retrieve=retrieve)
         if not self.vms_response_is_empty(masters, category=VMCategory.masters):
             self.masters = masters
         if not self.vms_response_is_empty(workers, category=VMCategory.workers):
             self.workers = workers
         print(crayons.green(f'Cluster: {self.cluster_attributes.name} initialized.'))
 
-    def show(self, action: KubeClusterAction = KubeClusterAction.create):
+    def show(self, action: KubeClusterAction = KubeClusterAction.create, template=False):
         output.output_cluster(self)
         output.output_config(self)
         output.output_control_plane(self)
         output.output_tools_settings(self)
-        output.output_templates(self, action=action) if self.template else None
-        output.output_masters(self, action=action) if self.masters else None
-        output.output_worker_groups(self, action=action) if self.workers else None
+        if action == KubeClusterAction.delete and not template:
+            output.output_templates(self, action=KubeClusterAction.nothing) if self.template else None
+        else:
+            output.output_templates(self, action=action) if self.template else None
+        output.output_masters(self, action=action, vmid_placeholder=VMID_PLACEHOLDER) if self.masters else None
+        output.output_worker_groups(self, action=action, vmid_placeholder=VMID_PLACEHOLDER) if self.workers else None
 
-    def plan(self, action=KubeClusterAction.create):
-        self.show(action=action) if not self.cluster_exists() else None
+    def plan(self, action=KubeClusterAction.create, template=False):
+        self.show(action=action, template=template)
         return self.cluster_exists()
 
     def action_factory(self, action=KubeClusterAction.create):
@@ -297,28 +309,27 @@ class KubeCluster:
         }
         return actions[action.value]
 
-    def is_abort(self, action=KubeClusterAction.create):
+    def is_abort(self, action=KubeClusterAction.create, template=False):
         """
         Runs plan method to determine if cluster exists and show plan output if not.
         :returns True if apply action is to be aborted.
         """
-        exists = self.plan(action)
+        exists = self.plan(action, template=template)
         if self.is_action_create(action) and exists:
-            logging.error(crayons.red(f'Apply {action.value} aborted.'))
+            logging.error(crayons.red(f'Apply type: {action.value} aborted.'))
             logging.error(crayons.red(f'Cluster {self.cluster_attributes.name} exists.'))
             return True
         if not self.is_action_create(action) and not exists:
-            logging.error(crayons.red(f'Apply {action.value} aborted.'))
-            logging.error(crayons.red(f'Cluster {self.cluster_attributes.name} exists.'))
+            logging.error(crayons.red(f'Apply type: {action.value} aborted.'))
+            logging.error(crayons.red(f'Cluster {self.cluster_attributes.name} does not exist.'))
             return True
         return False
 
     def apply(self, action=KubeClusterAction.create):
-        """Executes only create action before other actions are implemented."""
-        # TODO: Determine action dynamically, from code at another stage, instead of argument action.
+        """Executes only create, delete actions before other actions are implemented."""
         if self.is_abort(action):
             return
-        if not self.is_action_create(action):
+        if not self.is_action_create(action) or not self.is_action_delete(action):
             logging.warning(crayons.yellow(f'Cluster {action.value} not implemented yet.'))
             return
         execute = self.action_factory(action)
@@ -348,12 +359,42 @@ class KubeCluster:
         return template_vmid_list, masters_vmid_list, workers_vmid_list
 
     def delete(self, template=False, rollback_only=False):
-        """Bypass query functions to test delete?"""
-        pass
+        """
+        De-provisions & deletes cluster VMs. If template flag is used, it also deletes template vms.
+        Option rollback_only, just removes nodes from the cluster, without deleting them.
+        """
+        logging.warning(crayons.yellow('Performing Rollback of worker nodes'))
+        self.rollback_workers()
+        complete = crayons.green('Rollback Complete')
+        print(complete)
+        logging.warning(crayons.yellow('Performing Rollback of master nodes'))
+        self.rollback_control_plane()
+        print(complete)
+        if rollback_only:
+            return
 
-    def retrieve(self):
-        # TODO: Query vms if cluster exists.
-        pass
+        workers_vmid_list = self.execute_workers(destroy=True)
+        masters_vmid_list = self.execute_masters(destroy=True)
+
+        masters_vmid_str = ' '.join(masters_vmid_list)
+
+        remove_title = 'Stopped & Removed'
+        print(crayons.blue(remove_title))
+        print(crayons.blue('=' * len(remove_title)))
+        print(crayons.white(f'Masters VMID: ') + crayons.yellow(masters_vmid_str))
+        for role, workers in workers_vmid_list.items():
+            print(crayons.white(f'Workers {role} VMID') + crayons.yellow(workers))
+        print('')
+        if not template:
+            return
+
+        logging.warning(crayons.yellow('Deleting Templates'))
+        template_vmid_list = self.execute_templates(destroy=True)
+        template_vmid_str = ' '.join(template_vmid_list)
+        print(crayons.blue(remove_title))
+        print(crayons.blue('=' * len(remove_title)))
+        print(crayons.white(f'Templates VMID: ') + crayons.yellow(template_vmid_str))
+        print('')
 
     def update(self):
         pass
@@ -567,7 +608,7 @@ class KubeCluster:
         else:
             return template_query[0]
 
-    def get_masters_vms(self, templates: dict):
+    def get_masters_vms(self, templates: dict, retrieve=False):
         """
         InstanceClone.vmid is pre-populated,
         to be filled with InstanceClone.generate_vmid_and_username(),
@@ -584,10 +625,11 @@ class KubeCluster:
             templates=templates,
             disk=disk,
             vmid=VMID_PLACEHOLDER,
-            username=username
+            username=username,
+            query=retrieve
         )
 
-    def get_workers_vms(self, templates: dict):
+    def get_workers_vms(self, templates: dict, retrieve=False):
         """
         InstanceClone.vmid is pre-populated,
         to be filled with InstanceClone.generate_vmid_and_username(),
@@ -624,7 +666,8 @@ class KubeCluster:
                 templates=templates,
                 disk=disk,
                 vmid=VMID_PLACEHOLDER,
-                username=username
+                username=username,
+                query=retrieve
             )
         return workers
 
@@ -643,14 +686,15 @@ class KubeCluster:
             template=template
         )
 
-    @staticmethod
     def get_vms(
+            self,
             vm_attributes_list: list,
             role: str,
             templates: dict,
             disk: dict,
             vmid: int = None,
-            username: str = None
+            username: str = None,
+            query: bool = False
     ):
         hotplug_disk = disk.get('hotplug')
         hotplug_disk_size = disk.get('hotplug_size')
@@ -667,16 +711,22 @@ class KubeCluster:
             template = templates.get(vm_attributes.node)
             # Inherit template instance storage type.
             vm_attributes.storage_type = template.vm_attributes.storage_type
-            clone = InstanceClone(
-                vm_attributes=vm_attributes,
-                client=settings.vm_client,
-                template=template,
-                vmid=vmid,
-                username=username
-            )
-            if hotplug_disk:
-                clone.hotplug_disk_size = hotplug_disk_size
-            vms.append(clone)
+            if query:
+                clone = None
+                answer = self.query_vms(config=vm_attributes)
+                if answer:
+                    clone = answer[0]
+            else:
+                clone = InstanceClone(
+                    vm_attributes=vm_attributes,
+                    client=settings.vm_client,
+                    template=template,
+                    vmid=vmid,
+                    username=username
+                )
+                if hotplug_disk:
+                    clone.hotplug_disk_size = hotplug_disk_size
+            vms.append(clone) if clone else None
         return vms
 
     def get_vm_group(self, category: VMCategory):

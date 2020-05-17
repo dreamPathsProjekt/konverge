@@ -2,7 +2,7 @@ import time
 import os
 
 # Pass Custom file
-from konverge.utils import set_pve_config_filename, set_kube_config_filename
+from konverge.utils import set_pve_config_filename, set_kube_config_filename, KubeClusterAction
 set_pve_config_filename('test.yml')
 
 from konverge import settings
@@ -155,5 +155,5 @@ def execute():
     kube_config = KubeClusterConfigFile().serialize()
     kube_config_client = KubeCluster(kube_config)
     if kube_config_client:
-        kube_config_client.plan()
+        kube_config_client.plan(action=KubeClusterAction.delete)
 

@@ -127,6 +127,7 @@ class KubeClusterAction(EnumCommon):
     update = 'update'
     delete = 'delete'
     recreate = 'recreate'
+    nothing = 'nothing'
 
 
 class VMAttributes:
