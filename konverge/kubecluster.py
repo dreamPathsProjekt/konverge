@@ -43,7 +43,6 @@ class ClusterAttributes(NamedTuple):
     version: str = None
     docker: str = None
     docker_ce: bool = False
-
     helm: HelmAtrributes = HelmAtrributes()
 
 
@@ -63,6 +62,7 @@ class KubeCluster:
         self.template = None
         self.masters = None
         self.workers = None
+        self.on_delete_hooks = {'template': False, 'rollback_only': False}
         self.initialize()
 
     @property
@@ -256,8 +256,12 @@ class KubeCluster:
     def is_action_update(action=KubeClusterAction.update):
         return action == KubeClusterAction.update
 
+    def set_on_delete_hooks(self, template=False, rollback_only=False):
+        self.on_delete_hooks['template'] = template
+        self.on_delete_hooks['rollback_only'] = rollback_only
+
     def destroy_warning(self, destroy=False):
-        msg = f'Deleting Cluster {self.cluster_attributes.name} templates.'
+        msg = f'Deleting Cluster {self.cluster_attributes.name} vms.'
         logging.warning(crayons.yellow(msg)) if destroy else None
 
     def cluster_exists(self):
@@ -292,20 +296,20 @@ class KubeCluster:
             self.workers = workers
         print(crayons.green(f'Cluster: {self.cluster_attributes.name} initialized.'))
 
-    def show(self, action: KubeClusterAction = KubeClusterAction.create, template=False):
+    def show(self, action: KubeClusterAction = KubeClusterAction.create):
         output.output_cluster(self)
         output.output_config(self)
         output.output_control_plane(self)
         output.output_tools_settings(self)
-        if action == KubeClusterAction.delete and not template:
+        if action == KubeClusterAction.delete and not self.on_delete_hooks['template']:
             output.output_templates(self, action=KubeClusterAction.nothing) if self.template else None
         else:
             output.output_templates(self, action=action) if self.template else None
         output.output_masters(self, action=action, vmid_placeholder=VMID_PLACEHOLDER) if self.masters else None
         output.output_worker_groups(self, action=action, vmid_placeholder=VMID_PLACEHOLDER) if self.workers else None
 
-    def plan(self, action=KubeClusterAction.create, template=False):
-        self.show(action=action, template=template)
+    def plan(self, action=KubeClusterAction.create):
+        self.show(action)
         return self.cluster_exists()
 
     def action_factory(self, action=KubeClusterAction.create):
@@ -317,13 +321,12 @@ class KubeCluster:
         }
         return actions[action.value]
 
-    def is_abort(self, action=KubeClusterAction.create, template=False):
+    def is_abort(self, action=KubeClusterAction.create):
         """
         Runs plan method to determine if cluster exists and show plan output if not.
-        Option template is used for delete|recreate actions.
         :returns True if apply action is to be aborted.
         """
-        exists = self.plan(action, template=template)
+        exists = self.plan(action)
         if self.is_action_create(action) and exists:
             logging.error(crayons.red(f'Apply type: {action.value} aborted.'))
             logging.error(crayons.red(f'Cluster {self.cluster_attributes.name} exists.'))
@@ -335,7 +338,9 @@ class KubeCluster:
         return False
 
     def apply(self, action=KubeClusterAction.create):
-        """Executes only create, delete actions before other actions are implemented."""
+        """
+        Executes only create, delete actions before other actions are implemented.
+        """
         if self.is_abort(action):
             return
         if self.is_action_update(action):
@@ -367,7 +372,7 @@ class KubeCluster:
         self.post_installs()
         return template_vmid_list, masters_vmid_list, workers_vmid_list
 
-    def delete(self, template=False, rollback_only=False):
+    def delete(self):
         """
         De-provisions & deletes cluster VMs. If template flag is used, it also deletes template vms.
         Option rollback_only, just removes nodes from the cluster, without deleting them.
@@ -379,7 +384,7 @@ class KubeCluster:
         logging.warning(crayons.yellow('Performing Rollback of master nodes'))
         self.rollback_control_plane()
         print(complete)
-        if rollback_only:
+        if self.on_delete_hooks['rollback_only']:
             return
 
         logging.warning(crayons.yellow('Removing Proxmox VMs'))
@@ -395,7 +400,7 @@ class KubeCluster:
         for role, workers in workers_vmid_list.items():
             print(crayons.white(f'Workers {role} VMID') + crayons.yellow(workers))
         print('')
-        if not template:
+        if not self.on_delete_hooks['template']:
             return
 
         logging.warning(crayons.yellow('Removing Templates'))
@@ -409,8 +414,8 @@ class KubeCluster:
     def update(self):
         pass
 
-    def recreate(self, template=False):
-        self.delete(template=template)
+    def recreate(self):
+        self.delete()
         self.create()
 
     def execute_templates(self, destroy=False):
