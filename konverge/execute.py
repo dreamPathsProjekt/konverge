@@ -152,7 +152,29 @@ def execute():
     # print(kube_executor.get_bridge_common_interface())
     # print(get_kube_versions(kube_major='1.16'))
 
-    kube_config = KubeClusterConfigFile().serialize()
-    kube_config_client = KubeCluster(kube_config)
-    if kube_config_client:
-        kube_config_client.apply(action=KubeClusterAction.create)
+    # kube_config = KubeClusterConfigFile().serialize()
+    # kube_config_client = KubeCluster(kube_config)
+    # if kube_config_client:
+    #     kube_config_client.apply(action=KubeClusterAction.create)
+
+    query = VMQuery(client=settings.vm_client, pool='development', node='vhost2', name='porev', vmid=214)
+    instances = query.all_vms
+    print(instances['instances'])
+    print()
+    print()
+    instance = query.get_vm()
+    print(instance)
+    print()
+    print()
+    members = query.filter_vms_by_pool()
+    print(members)
+    print()
+    print()
+    names = query.filter_vms_by_name()
+    print(names)
+    print()
+    print()
+    # conf = query.get_vm_config(vmid=query.vmid)
+    # print(conf)
+    answer = query.execute()
+    print(vars(answer))

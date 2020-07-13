@@ -32,10 +32,14 @@ class ProxmoxAPIClient:
         }
         return types.get(instance_type)
 
-    def get_resource_pools(self, name=None):
-        if name:
-            return [pool.get('poolid') for pool in self.client.pools.get() if pool.get('poolid') == name][0]
+    def get_resource_pools(self, poolid=None):
+        if poolid:
+            return [pool.get('poolid') for pool in self.client.pools.get() if pool.get('poolid') == poolid][0]
         return [pool.get('poolid') for pool in self.client.pools.get()]
+
+    def get_pool_members(self, poolid):
+        if self.get_resource_pools(poolid=poolid):
+            return self.client.pools.get(poolid).get('members')
 
     def get_or_create_pool(self, name):
         if not name or (name in self.get_resource_pools()):
@@ -196,7 +200,6 @@ class VMAPIClient(ProxmoxAPIClient):
             storage=self.get_cluster_storage(storage_type=vm_attributes.storage_type)[0].get('name'),
             net0=f'model=virtio,bridge=vmbr0,firewall=1'
         )
-
     def start_vm(self, node, vmid):
         node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).status.start.post()
