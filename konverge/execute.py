@@ -154,25 +154,61 @@ def execute():
 
     kube_config = KubeClusterConfigFile().serialize()
 
-    from konverge.kubeorchestrator import ClusterAttributesSerializer, ControlPlaneSerializer, ClusterTemplate
+    from konverge.serializers import ClusterTemplateSerializer
+    from konverge.serializers import ClusterAttributesSerializer
+    from konverge.serializers import ControlPlaneSerializer, ClusterMasterSerializer, ClusterWorkerSerializer
+    import pprint
+    from konverge.kubeorchestrator import KubeOrchestrator
+
     cluster = ClusterAttributesSerializer(kube_config)
     cluster.serialize()
     cp = ControlPlaneSerializer(kube_config)
     cp.serialize()
 
-    print(cluster.cluster)
-    print(cp.control_plane)
+    orchestrator = KubeOrchestrator(config=KubeClusterConfigFile())
+    pprint.pprint(vars(orchestrator))
+    #
+    # print(cluster.cluster)
+    # pprint.pprint(vars(cp.control_plane))
+    # print()
+    # print()
+    #
+    # templates = ClusterTemplateSerializer(
+    #     config=kube_config.get('template'),
+    #     cluster_attributes=cluster.cluster
+    # )
+    # templates.serialize()
+    # pprint.pprint(vars(templates))
+    # pprint.pprint(templates.state)
+    # isit = templates.query()
+    # print(isit)
+    # pprint.pprint(templates.state)
+    # print()
+    # print()
+    # masters = ClusterMasterSerializer(
+    #     config=kube_config.get('masters'),
+    #     cluster_attributes=cluster.cluster,
+    #     templates=templates
+    # )
+    # masters.serialize()
+    # workers = ClusterWorkerSerializer(
+    #     config=kube_config.get('workers')[0],
+    #     cluster_attributes=cluster.cluster,
+    #     templates=templates
+    # )
+    # workers.serialize()
+    #
+    # pprint.pprint(vars(masters))
+    # [pprint.pprint(vars(instance)) for instance in masters.instances]
+    # print()
+    # print()
+    # pprint.pprint(vars(workers))
+    # [pprint.pprint(vars(instance)) for instance in workers.instances]
+    # print()
+    # print()
+    # print(workers.roles)
+    # print(ClusterWorkerSerializer.is_valid())
 
-    templates = ClusterTemplate(
-        config=kube_config.get('template'),
-        control_plane=cp.control_plane,
-        cluster_attributes=cluster.cluster
-    )
-    templates.serialize()
-    print(vars(templates))
-    print(templates.details)
-    templates.query()
-    print(templates.details)
     # kube_config_client = KubeCluster(kube_config)
     # if kube_config_client:
     #     kube_config_client.apply(action=KubeClusterAction.create)

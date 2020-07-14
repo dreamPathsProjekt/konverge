@@ -49,6 +49,50 @@ def get_kube_versions(os_type='ubuntu', kube_major='1.16', docker_ce=False):
     ).stdout
 
 
+def infer_full_versions_from_major(kubernetes='1.16', docker_ce=False):
+    versions = get_kube_versions(kube_major=kubernetes, docker_ce=docker_ce)
+    lines = versions.splitlines()
+    start = 0
+    end = len(lines)
+    docker_ce_start = 0
+    docker_ce_end = len(lines)
+    docker_io_start = 0
+    docker_io_end = len(lines)
+    for line in lines:
+        if '=== kubelet ===' in line:
+            start = lines.index(line)
+        if '=== kubectl ===' in line:
+            end = lines.index(line)
+        if '=== docker.io ===' in line:
+            docker_io_start = lines.index(line)
+        if '=== docker-ce ===' in line:
+            docker_io_end = lines.index(line)
+        if '=== docker-ce ===' in line and docker_ce:
+            docker_ce_start = lines.index(line)
+        if docker_ce:
+            docker_ce_end = -1
+    version_list = [entry for entry in lines[start + 1:end] if entry]
+    docker_ce_list = [entry for entry in lines[docker_ce_start + 1:docker_ce_end] if entry] if docker_ce else []
+    docker_io_list = [entry for entry in lines[docker_io_start + 1:docker_io_end] if entry]
+    minor_versions = []
+    docker_ce_versions = []
+    docker_io_versions = []
+    for entry in version_list:
+        title, version, url = entry.split('|')
+        minor_versions.append(version.strip())
+    if docker_ce:
+        for entry in docker_ce_list:
+            title, version, url = entry.split('|')
+            docker_ce_versions.append(version.strip())
+    for entry in docker_io_list:
+        title, version, url = entry.split('|')
+        docker_io_versions.append(version.strip())
+    latest = minor_versions[0]
+    if docker_ce:
+        return latest, docker_ce_versions[0]
+    return latest, docker_io_versions[0]
+
+
 @singledispatch
 def get_attributes_exist(attributes, resource: ConfigSerializer):
     return [attribute for attribute in attributes if hasattr(resource, attribute)]

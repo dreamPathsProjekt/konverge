@@ -103,7 +103,6 @@ KUBE_CLUSTER_SCHEMA = {
         'template': {
             'type': 'object',
             'properties': {
-                'create': {'type': 'boolean'},
                 'pve_storage': {
                     'type': 'object',
                     'properties': {

@@ -88,7 +88,6 @@ class KubeCluster:
         return True
 
     def _serialize_cluster_attributes(self):
-        # TODO: Support preinstall option as argument, during generation. Methods cover it.
         os_type = self.cluster_config.get('os_type') or 'ubuntu'
         user = self.cluster_config.get('user')
         context = self.cluster_config.get('context')

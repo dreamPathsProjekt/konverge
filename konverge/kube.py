@@ -12,7 +12,7 @@ from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, pve_c
 
 # Avoid cyclic import
 if TYPE_CHECKING:
-    from konverge.kubecluster import KubeCluster
+    from konverge.serializers import ClusterAttributesSerializer
 
 class LinuxPackage(NamedTuple):
     command: str
@@ -671,28 +671,28 @@ class KubeExecutor:
             self.local.run(f'mv {local_config_base}.bak {local_config_base}')
             print(crayons.green('Rollback complete'))
 
-    # Use str type annotation for kube_cluster, to avoid cyclic import.
-    def unset_local_cluster_config(self, kube_cluster: 'KubeCluster'):
-        if not self.cluster_exists(kube_cluster):
-            logging.warning(crayons.yellow(f'Cluster: {kube_cluster.cluster_attributes.name} not found in config.'))
+    # Use str type annotation for cluster, to avoid cyclic import.
+    def unset_local_cluster_config(self, cluster: 'ClusterAttributesSerializer'):
+        if not self.cluster_exists(cluster):
+            logging.warning(crayons.yellow(f'Cluster: {cluster.cluster.name} not found in config.'))
             return
-        cluster_name = kube_cluster.cluster_attributes.name
-        user = kube_cluster.cluster_attributes.user
-        context = kube_cluster.cluster_attributes.context
+        cluster_name = cluster.cluster.name
+        user = cluster.cluster.user
+        context = cluster.cluster.context
         self.local.run(f'HOME={self.home} kubectl config use-context {context}')
         self.local.run(f'HOME={self.home} kubectl config delete-cluster {cluster_name}')
         self.local.run(f'HOME={self.home} kubectl config delete-context {context}')
         self.local.run(f'HOME={self.home} kubectl config unset users.{user}')
 
-    def cluster_exists(self, kube_cluster: 'KubeCluster'):
+    def cluster_exists(self, cluster: 'ClusterAttributesSerializer'):
         local_kube = os.path.join(self.home, '.kube')
         config_file = os.path.join(local_kube, 'config')
-        cluster_name = kube_cluster.cluster_attributes.name
+        cluster_name = cluster.cluster.name
         kube_config = KubeConfig(config_filename=config_file, custom_cluster_name=cluster_name)
-        if kube_cluster.cluster_attributes.user:
-            kube_config.custom_user_name = kube_cluster.cluster_attributes.user
-        if kube_cluster.cluster_attributes.context:
-            kube_config.custom_context = kube_cluster.cluster_attributes.context
+        if cluster.cluster.user:
+            kube_config.custom_user_name = cluster.cluster.user
+        if cluster.cluster.context:
+            kube_config.custom_context = cluster.cluster.context
         return kube_config.cluster_exists()
 
     def wait_for_running_system_status(self, namespace='kube-system', remote=False, poll_interval=1):
