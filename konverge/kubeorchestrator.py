@@ -41,7 +41,8 @@ class KubeOrchestrator:
             VMCategory.workers.value: [kube_runner_factory(worker) for worker in self.workers]
         }
 
-    def wait(self, wait_period=120):
+    @staticmethod
+    def wait(wait_period=120):
         sleep_intervals(wait_period)
 
     def create(self):
