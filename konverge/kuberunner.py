@@ -17,7 +17,7 @@ class KubeRunner:
             return
 
         exist = self.query()
-        print(exist)
+        # TODO: Fix worker groups create only element 0
         for instance in self.serializer.instances:
             state: list = self.serializer.state[instance.vm_attributes.node]
 
