@@ -113,6 +113,25 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         if self.vm_attributes.disk_size != self.template.vm_attributes.disk_size:
             self.resize_disk()
 
+    def disable_backups(self, drive_slot=0, all_drives=False):
+        if not all_drives:
+            return self.client.disable_backups(
+                node=self.vm_attributes.node,
+                vmid=self.vmid,
+                scsi=self.vm_attributes.scsi,
+                drive_slot=drive_slot
+            )
+        slots = self.get_unallocated_disk_slots()
+        return [
+            self.client.disable_backups(
+                node=self.vm_attributes.node,
+                vmid=self.vmid,
+                scsi=self.vm_attributes.scsi,
+                drive_slot=slot
+            )
+            for slot in range(slots)
+        ]
+
     def backup_export(self, storage: Storage = None, backup_mode: BackupMode = BackupMode.stop):
         if backup_mode == BackupMode.stop:
             print(crayons.blue(f'Stop VM {self.vmid}'))

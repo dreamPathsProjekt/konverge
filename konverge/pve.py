@@ -332,6 +332,25 @@ class VMAPIClient(ProxmoxAPIClient):
             bootdisk=driver
         )
 
+    def disable_backups(self, node, vmid, scsi=False, drive_slot=0):
+        config = self.get_vm_config(node=node, vmid=vmid)
+        drive = f'scsi{drive_slot}' if scsi else f'virtio{drive_slot}'
+        volume_details = config.get(drive)
+        if not volume_details:
+            return None
+        volume_details = f'{volume_details},backup=0'
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            **{drive: volume_details}
+        ) if scsi else self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            **{drive: volume_details}
+        )
+
     def resize_disk(self, node, vmid, driver='virtio0', disk_size=5):
         node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).resize.put(

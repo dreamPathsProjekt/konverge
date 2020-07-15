@@ -160,13 +160,16 @@ def execute():
     import pprint
     from konverge.kubeorchestrator import KubeOrchestrator
 
-    cluster = ClusterAttributesSerializer(kube_config)
-    cluster.serialize()
+    # cluster = ClusterAttributesSerializer(kube_config)
+    # cluster.serialize()
     cp = ControlPlaneSerializer(kube_config)
     cp.serialize()
 
     orchestrator = KubeOrchestrator(config=KubeClusterConfigFile())
-    pprint.pprint(vars(orchestrator))
+    # pprint.pprint(vars(orchestrator))
+    serializer = orchestrator.masters.instances[0]
+    pprint.pprint(settings.vm_client.disable_backups(node='vhost2', vmid=211))
+
     #
     # print(cluster.cluster)
     # pprint.pprint(vars(cp.control_plane))

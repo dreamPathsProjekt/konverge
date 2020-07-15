@@ -375,5 +375,5 @@ class ClusterWorkerSerializer(ClusterInstanceSerializer):
 
     @classmethod
     def is_valid(cls):
-        default_role = list(filter(lambda role: 'default', cls.roles))
+        default_role = list(filter(lambda role: role == 'default', cls.roles))
         return len(default_role) <= 1
