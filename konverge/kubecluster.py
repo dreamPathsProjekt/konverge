@@ -1,7 +1,9 @@
+import typing
+
 from konverge.kuberunner import serializers, kube_runner_factory
 from konverge.kube import KubeProvisioner
 from konverge.files import KubeClusterConfigFile
-from konverge.utils import VMCategory, sleep_intervals, HelmVersion
+from konverge.utils import VMCategory, sleep_intervals, HelmVersion, KubeClusterStages
 
 
 class KubeCluster:
@@ -38,9 +40,7 @@ class KubeCluster:
 
         self.runners = self._generate_runners()
         self.provisioners = self._generate_provisioners()
-        self.executor = serializers.KubeExecutor(
-            self.provisioners.get(VMCategory.masters.value).get('leader').instance.self_node
-        )
+        self.executor = None
 
     @property
     def is_control_plane_ha(self):
@@ -93,6 +93,14 @@ class KubeCluster:
                 for worker in self.workers
             }
         }
+
+    def _generate_executor(self):
+        """
+        Lazy load KubeExecutor with remote feature, until leader is online.
+        """
+        return serializers.KubeExecutor(
+            self.provisioners.get(VMCategory.masters.value).get('leader').instance.self_node
+        )
 
     def create(self):
         for category, runners in self.runners:
@@ -215,20 +223,55 @@ class KubeCluster:
             for worker in group:
                 self.executor.apply_label_node(role=role, instance_name=worker.instance.vm_attributes.name)
 
-    def execute(self, destroy=False, destroy_template=False, wait_period=120):
-        # TODO: Add create and destroy stages.
+    def execute(self, destroy=False, destroy_template=False, wait_period=120, stage: typing.Union[KubeClusterStages, None] = None):
+        if self.exists:
+            serializers.logging.warning(
+                serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
+            )
+            return
+
+        stage = f' Stage: {stage.value}' if stage else ''
+        action = 'destroyed' if destroy else 'created'
+        msg = f'Cluster {self.cluster.cluster.name} successfully {action}.{stage}'
         if not destroy:
+            if stage == KubeClusterStages.start:
+                print(serializers.crayons.green(msg))
+                return
             self.create()
             self.wait(wait_period, reason='')
+            if stage == KubeClusterStages.create:
+                print(serializers.crayons.green(msg))
+                return
+            self.executor = self._generate_executor()
             self.boostrap_control_plane()
             self.wait(wait_period, reason='')
+            if stage == KubeClusterStages.bootstrap:
+                print(serializers.crayons.green(msg))
+                return
             self.join_workers()
+            if stage == KubeClusterStages.join:
+                print(serializers.crayons.green(msg))
+                return
             self.post_installs()
-            print(serializers.crayons.green(f'Cluster {self.cluster.cluster.name} successfully created.'))
+            print(serializers.crayons.green(msg))
         else:
+            # if not self.exists:
+            #     return
+            if stage == KubeClusterStages.start:
+                print(serializers.crayons.green(msg))
+                return
             self.rollback_workers()
+            if stage == KubeClusterStages.join:
+                print(serializers.crayons.green(msg))
+                return
             self.rollback_control_plane()
+            if stage == KubeClusterStages.bootstrap:
+                print(serializers.crayons.green(msg))
+                return
             self.wait(wait_period=30, reason='')
+            if stage == KubeClusterStages.create:
+                print(serializers.crayons.green(msg))
+                return
             self.destroy(template=destroy_template)
-            print(serializers.crayons.green(f'Cluster {self.cluster.cluster.name} successfully destroyed.'))
+            print(serializers.crayons.green(msg))
 

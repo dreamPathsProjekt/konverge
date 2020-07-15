@@ -175,6 +175,15 @@ class KubeClusterAction(EnumCommon):
     nothing = 'nothing'
 
 
+class KubeClusterStages(EnumCommon):
+    start = 'start'
+    create = 'create'
+    bootstrap = 'bootstrap'
+    join = 'join'
+    # postinstall = 'postinstall'
+    # all = 'all'
+
+
 class VMAttributes:
     def __init__(
             self,
