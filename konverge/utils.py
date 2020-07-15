@@ -180,8 +180,6 @@ class KubeClusterStages(EnumCommon):
     create = 'create'
     bootstrap = 'bootstrap'
     join = 'join'
-    # postinstall = 'postinstall'
-    # all = 'all'
 
 
 class VMAttributes:
