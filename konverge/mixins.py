@@ -309,6 +309,7 @@ class CommonVMMixin:
             identity=self.vm_attributes.private_pem_ssh_key,
             ip=self.allowed_ip
         )
+        clear_server_entry(self.allowed_ip)
 
     def remove_ssh_config_entry(self):
         ip_address, netmask, gateway = self.client.get_ip_config_from_vm_cloudinit(

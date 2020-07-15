@@ -233,7 +233,13 @@ class ClusterInstanceSerializer:
                 pool=instance.vm_attributes.pool,
                 node=instance.vm_attributes.node
             )
-            created_instance = query.execute()[0]
+            answer = query.execute()
+            print(
+                crayons.white(
+                    f'Query {instance.vm_attributes.name}: {answer[0].vm_attributes.name if answer else "Not Found"}'
+                )
+            )
+            created_instance = answer[0] if answer else answer
             if created_instance:
                 self.instances[self.instances.index(instance)] = created_instance
                 self.state[instance.vm_attributes.node].append(
@@ -244,8 +250,7 @@ class ClusterInstanceSerializer:
                     }
                 )
         for node in self.nodes:
-            items = self.state[node]
-            if any(items['exists']):
+            if any(item['exists'] for item in self.state[node]):
                 return True
         return False
 

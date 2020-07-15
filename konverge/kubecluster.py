@@ -103,19 +103,19 @@ class KubeCluster:
         )
 
     def create(self):
-        for category, runners in self.runners:
+        for category, runners in self.runners.items():
             if category == VMCategory.workers.value:
                 [runner.create() for runner in runners]
             else:
                 runners.create()
 
     def destroy(self, template=False):
-        for category, runners in self.runners:
+        for category, runners in self.runners.items():
             if template and category == VMCategory.template.value:
                 runners.destroy()
             elif category == VMCategory.workers.value:
                 [runner.destroy() for runner in runners]
-            else:
+            elif category == VMCategory.masters.value:
                 runners.destroy()
 
     def install_loadbalancer(self):
@@ -233,45 +233,41 @@ class KubeCluster:
         stage = f' Stage: {stage.value}' if stage else ''
         action = 'destroyed' if destroy else 'created'
         msg = f'Cluster {self.cluster.cluster.name} successfully {action}.{stage}'
-        if not destroy:
-            if stage == KubeClusterStages.start:
+
+        if destroy:
+            if not stage:
+                self.rollback_workers()
+                self.rollback_control_plane()
+                self.destroy(template=destroy_template)
                 print(serializers.crayons.green(msg))
                 return
+
+            self.rollback_workers() if stage == KubeClusterStages.join.value else None
+            self.rollback_control_plane() if stage == KubeClusterStages.bootstrap.value else None
+            self.destroy(template=destroy_template) if stage == KubeClusterStages.create.value else None
+            print(serializers.crayons.green(msg))
+            return
+
+        if not stage:
             self.create()
-            self.wait(wait_period, reason='')
-            if stage == KubeClusterStages.create:
-                print(serializers.crayons.green(msg))
-                return
+            self.wait(wait_period, reason='Create & Start Cluster VMs')
             self.executor = self._generate_executor()
             self.boostrap_control_plane()
-            self.wait(wait_period, reason='')
-            if stage == KubeClusterStages.bootstrap:
-                print(serializers.crayons.green(msg))
-                return
+            self.wait(wait_period, reason='Bootstrap Control Plane')
             self.join_workers()
-            if stage == KubeClusterStages.join:
-                print(serializers.crayons.green(msg))
-                return
             self.post_installs()
             print(serializers.crayons.green(msg))
-        else:
-            # if not self.exists:
-            #     return
-            if stage == KubeClusterStages.start:
-                print(serializers.crayons.green(msg))
-                return
-            self.rollback_workers()
-            if stage == KubeClusterStages.join:
-                print(serializers.crayons.green(msg))
-                return
-            self.rollback_control_plane()
-            if stage == KubeClusterStages.bootstrap:
-                print(serializers.crayons.green(msg))
-                return
-            self.wait(wait_period=30, reason='')
-            if stage == KubeClusterStages.create:
-                print(serializers.crayons.green(msg))
-                return
-            self.destroy(template=destroy_template)
-            print(serializers.crayons.green(msg))
+            return
+
+        # if stage == KubeClusterStages.create.value:
+        #     self.create()
+        #     self.wait(wait_period, reason='Create & Start Cluster VMs')
+        # if stage == KubeClusterStages.bootstrap.value:
+        #     self.executor = self._generate_executor()
+        #     self.boostrap_control_plane()
+        #     self.wait(wait_period, reason='Bootstrap Control Plane')
+        # if stage == KubeClusterStages.join.value:
+        #     self.join_workers()
+        #     self.post_installs()
+        # print(serializers.crayons.green(msg))
 
