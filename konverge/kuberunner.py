@@ -17,7 +17,9 @@ class KubeRunner:
             return
 
         exist = self.query()
-        # TODO: Fix worker groups create only element 0. Bug is here based on dry-run.
+        # TODO: Fix worker groups create only element 0.
+        # Bug exists when there is single node on node attribute.
+        # Also look serializer state.
         for instance in self.serializer.instances:
             state: list = self.serializer.state[instance.vm_attributes.node]
 
@@ -35,6 +37,7 @@ class KubeRunner:
                     )
                     continue
                 index = state.index(member)
+                print(f'Name {instance.vm_attributes.name} Index: {index}')
                 instance.vmid, _ = instance.get_vmid_and_username()
                 vmid = instance.execute(start=True, dry_run=dry_run)
                 if disable_backups:
