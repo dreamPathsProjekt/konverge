@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, List
 
 # Avoid cyclic import
 if TYPE_CHECKING:
-    from konverge.kubecluster import KubeCluster
     from konverge.instance import InstanceClone
 
 from konverge.utils import KubeClusterAction, VMAttributes, colorize_yes_or_no

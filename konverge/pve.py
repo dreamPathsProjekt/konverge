@@ -13,7 +13,7 @@ from konverge.utils import (
     BackupMode
 )
 
-# TODO: Add option no backup vms on create.
+
 class ProxmoxAPIClient:
     def __init__(self, host, user, password, backend='https', verify_ssl=False):
         self.client = ProxmoxAPI(
