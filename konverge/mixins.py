@@ -368,7 +368,7 @@ class CommonVMMixin:
         if installed.ok:
             print(crayons.green(f'Installed pre-requisites on {host}'))
         else:
-            logging.error(crayons.red(f'Pre-requisistes on {host} failed to install.'))
+            logging.error(crayons.red(f'Pre-requisites on {host} failed to install.'))
             return
 
         if storageos_requirements:
@@ -376,6 +376,36 @@ class CommonVMMixin:
 
     def install_storageos_requirements(self):
         pass
+
+    def dry_run(self, destroy=False, instance=True):
+        color = crayons.red if destroy else crayons.green
+        prefix = 'Destroy' if destroy else 'Create'
+        title = f'{prefix} VM {self.vm_attributes.name}'
+        horizontal_sep = '=' * len(title)
+
+        print()
+        print(color(title))
+        print(color(horizontal_sep))
+        print()
+        print(color(f'VMID: ') + crayons.yellow(self.vmid))
+        if instance:
+            print(color('Template'))
+            print(color(f'  VMID: ') + crayons.yellow(self.template.vmid))
+            print(color(f'  Name: {self.template.vm_attributes.name}'))
+            print(color('Instance'))
+        print(color(f'  Node: {self.vm_attributes.node}'))
+        print(color(f'  Pool: {self.vm_attributes.pool}'))
+        print(color(f'  Description: {self.vm_attributes.description}'))
+        print(color(f'  OS: {self.vm_attributes.os_type}'))
+        print(color(f'  CPUs: {self.vm_attributes.cpus}'))
+        print(color(f'  Memory: {self.vm_attributes.memory}'))
+        print(color(f'  DiskSize GB: {self.vm_attributes.disk_size}'))
+        print(color(f'  Scsi driver: {self.vm_attributes.scsi}'))
+        print(color(f'  Storage: {self.vm_attributes.storage_type}'))
+        print(color(f'  SSH keyname: {self.vm_attributes.ssh_keyname}'))
+        print(color(f'  Gateway: {self.vm_attributes.gateway}'))
+        print()
+        print()
 
 
 class ExecuteStagesMixin:

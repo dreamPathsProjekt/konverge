@@ -152,7 +152,10 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             logging.warning(crayons.yellow('Backup job issued. See proxmox dashboard for task details & completion.'))
         return started
 
-    def execute(self, start=False, destroy=False):
+    def execute(self, start=False, destroy=False, dry_run=False):
+        if dry_run:
+            self.dry_run(destroy=destroy, instance=True)
+            return self.vmid
         if destroy:
             self.stop_stage()
             self.destroy_vm()

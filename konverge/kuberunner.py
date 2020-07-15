@@ -12,12 +12,12 @@ class KubeRunner:
     def is_valid(self):
         return self.serializer.hotplug_valid
 
-    def create(self, disable_backups=False):
+    def create(self, disable_backups=False, dry_run=False):
         if not self.is_valid:
             return
 
         exist = self.query()
-        # TODO: Fix worker groups create only element 0
+        # TODO: Fix worker groups create only element 0. Bug is here based on dry-run.
         for instance in self.serializer.instances:
             state: list = self.serializer.state[instance.vm_attributes.node]
 
@@ -36,7 +36,7 @@ class KubeRunner:
                     continue
                 index = state.index(member)
                 instance.vmid, _ = instance.get_vmid_and_username()
-                vmid = instance.execute(start=True)
+                vmid = instance.execute(start=True, dry_run=dry_run)
                 if disable_backups:
                     instance.disable_backups()
                 state[index] = {
@@ -45,7 +45,7 @@ class KubeRunner:
                     'exists': True
                 }
 
-    def destroy(self):
+    def destroy(self, dry_run=False):
         if not self.query():
             return
 
@@ -65,7 +65,7 @@ class KubeRunner:
                     )
                     continue
                 index = state.index(member)
-                instance.execute(destroy=True)
+                instance.execute(destroy=True, dry_run=dry_run)
                 state[index] = {
                     'name': instance.vm_attributes.name,
                     'vmid': serializers.settings.VMID_PLACEHOLDER,
@@ -84,7 +84,7 @@ class KubeTemplateRunner(KubeRunner):
             [self.serializer.template_exists(node) for node in self.serializer.nodes]
         ) and self.serializer.hotplug_valid
 
-    def create(self, disable_backups=False):
+    def create(self, disable_backups=False, dry_run=False):
         self.serializer: serializers.ClusterTemplateSerializer
         if not self.is_valid:
             return
@@ -102,12 +102,13 @@ class KubeTemplateRunner(KubeRunner):
             vmid = instance.execute(
                 kubernetes_version=self.serializer.cluster_attributes.version,
                 docker_version=self.serializer.cluster_attributes.docker,
-                docker_ce=self.serializer.cluster_attributes.docker_ce
+                docker_ce=self.serializer.cluster_attributes.docker_ce,
+                dry_run=dry_run
             )
             self.serializer.state[instance.vm_attributes.node]['exists'] = True
             self.serializer.state[instance.vm_attributes.node]['vmid'] = vmid
 
-    def destroy(self):
+    def destroy(self, dry_run=False):
         self.serializer: serializers.ClusterTemplateSerializer
         if not self.query():
             return
@@ -121,11 +122,12 @@ class KubeTemplateRunner(KubeRunner):
                     )
                 )
                 continue
-            # TODO: Template execute(destroy=True) does not remove templates.
+            # TODO: Template execute(destroy=True) does not remove templates. Uses destroy vm.
             instance.execute(
                 kubernetes_version=self.serializer.cluster_attributes.version,
                 docker_version=self.serializer.cluster_attributes.docker,
                 docker_ce=self.serializer.cluster_attributes.docker_ce,
+                dry_run=dry_run,
                 destroy=True
             )
             self.serializer.state[instance.vm_attributes.node]['exists'] = False

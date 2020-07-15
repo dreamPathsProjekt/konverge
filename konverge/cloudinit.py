@@ -121,8 +121,12 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         docker_version='18.09.7',
         docker_ce=False,
         storageos_requirements=False,
-        destroy=False
+        destroy=False,
+        dry_run=False
     ):
+        if dry_run:
+            self.dry_run(destroy=destroy, instance=False)
+            return self.vmid
         if destroy:
             self.stop_stage(cloudinit=True)
             self.destroy_vm()
