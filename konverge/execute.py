@@ -12,4 +12,4 @@ def execute():
     cluster = KubeCluster(config=settings.kube_config)
     # cluster.execute(wait_period=240, stage=KubeClusterStages.create)
     # cluster.execute(dry_run=True, destroy=True, stage=KubeClusterStages.create)
-    cluster.execute(dry_run=True, stage=KubeClusterStages.create)
+    cluster.execute(dry_run=True, stage=KubeClusterStages.join)
