@@ -396,7 +396,13 @@ class VMAPIClient(ProxmoxAPIClient):
 
     def get_all_vm_allocated_ips_all_nodes(self):
         allocated = set()
-        for node_instance in self.get_cluster_nodes():
+        try:
+            nodes = self.get_cluster_nodes()
+        except Exception as disconnected:
+            logging.warning(crayons.yellow(disconnected))
+            nodes = self.get_cluster_nodes()
+
+        for node_instance in nodes:
             node = node_instance.get('name')
             vms = self.get_cluster_vms(node)
             if not vms:

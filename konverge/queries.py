@@ -137,8 +137,11 @@ class VMQuery:
         return instance_clone
 
     def update_instance_template(self, instance: InstanceClone):
-        filter_templates_per_node = lambda tmpl: tmpl.get('node') == instance.vm_attributes.node
-        templates = filter(filter_templates_per_node, self.all_vms.get('templates'))
+        if not self.node:
+            filter_templates_per_node = lambda tmpl: tmpl.get('node') == instance.vm_attributes.node
+            templates = list(filter(filter_templates_per_node, self.all_vms.get('templates')))
+        else:
+            templates = self.all_vms.get('templates')
 
         for template in templates:
             node, pool, vmid = self.reverse_vm(template)

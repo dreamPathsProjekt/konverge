@@ -11,6 +11,6 @@ from konverge import settings
 def execute():
     cluster = KubeCluster(config=settings.kube_config)
     # cluster.execute(wait_period=240, stage=KubeClusterStages.create)
-    cluster.execute(dry_run=True, destroy=True)
+    # cluster.execute(dry_run=True, destroy=True, destroy_template=True)
     # cluster.execute(dry_run=True, stage=KubeClusterStages.join)
-    # cluster.execute(dry_run=True)
+    cluster.execute(wait_period=360, stage=KubeClusterStages.create)

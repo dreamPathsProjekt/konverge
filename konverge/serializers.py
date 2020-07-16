@@ -246,7 +246,7 @@ class ClusterInstanceSerializer:
                 member = list(filter(match, vms_state))[0]
                 index = vms_state.index(member) if member else None
                 self.instances[self.instances.index(instance)] = created_instance
-                if index:
+                if index is not None:
                     self.state[instance.vm_attributes.node][index] = {
                         'name': created_instance.vm_attributes.name,
                         'vmid': created_instance.vmid,

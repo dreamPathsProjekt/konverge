@@ -21,7 +21,10 @@ class KubeRunner:
 
     @classmethod
     def unset_allocated(cls, vmid):
-        cls.allocated_vmids.remove(int(vmid))
+        try:
+            cls.allocated_vmids.remove(int(vmid))
+        except KeyError:
+            pass
 
     def create(self, disable_backups=False, dry_run=False):
         if not self.is_valid:
@@ -51,7 +54,10 @@ class KubeRunner:
             vmid = instance.execute(start=True, dry_run=dry_run)
             self.set_allocated(vmid)
             if disable_backups:
-                instance.disable_backups()
+                if dry_run:
+                    print(serializers.crayons.blue(f'Disable backup for VM {vmid}: {instance.vm_attributes.name}'))
+                else:
+                    instance.disable_backups()
             state[index] = {
                 'name': instance.vm_attributes.name,
                 'vmid': vmid,

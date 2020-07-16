@@ -125,12 +125,12 @@ class KubeCluster:
             leader.self_node
         )
 
-    def create(self, dry_run=False):
+    def create(self, disable_backups=False, dry_run=False):
         for category, runners in self.runners.items():
             if category == VMCategory.workers.value:
-                [runner.create(dry_run=dry_run) for runner in runners]
+                [runner.create(disable_backups=disable_backups, dry_run=dry_run) for runner in runners]
             else:
-                runners.create(dry_run=dry_run)
+                runners.create(disable_backups=disable_backups, dry_run=dry_run)
 
     def destroy(self, template=False, dry_run=False):
         for category, runners in self.runners.items():
@@ -412,6 +412,7 @@ class KubeCluster:
             self,
             destroy=False,
             destroy_template=False,
+            disable_backups=True,
             wait_period=120,
             stage: typing.Union[KubeClusterStages, None] = None,
             dry_run=False
@@ -469,7 +470,7 @@ class KubeCluster:
         if not stage:
             print()
             print(stage_create)
-            self.create(dry_run=dry_run)
+            self.create(disable_backups=disable_backups, dry_run=dry_run)
             self.wait(wait_period=wait_create, reason='Create & Start Cluster VMs')
             self.executor = self._generate_executor(dry_run=dry_run)
             print(stage_bootstrap)
@@ -485,7 +486,7 @@ class KubeCluster:
         print()
         if stage.value == KubeClusterStages.create.value:
             print(stage_output)
-            self.create(dry_run=dry_run)
+            self.create(disable_backups=disable_backups, dry_run=dry_run)
             self.wait(wait_period=wait_create, reason='Create & Start Cluster VMs')
         if stage.value == KubeClusterStages.bootstrap.value:
             print(stage_output)
