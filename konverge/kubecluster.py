@@ -204,6 +204,7 @@ class KubeCluster:
                     certificate_key=cert_key
                 ) if not dry_run else None
         print(serializers.crayons.green('Successfully Bootstrapped Control Plane (dry-run)')) if dry_run else None
+        print()
 
     def rollback_control_plane(self, dry_run=False):
         if dry_run:
@@ -224,6 +225,7 @@ class KubeCluster:
         print(serializers.crayons.cyan(f'Rollback leader master node: {leader.instance.vm_attributes.name}'))
         leader.rollback_node() if not dry_run else None
         print(serializers.crayons.green('Successfully removed master nodes (dry-run)')) if dry_run else None
+        print()
 
     def join_workers(self, dry_run=False):
         if dry_run:
@@ -240,6 +242,7 @@ class KubeCluster:
                 print(serializers.crayons.cyan(f'Joining worker node: {worker.instance.vm_attributes.name}'))
                 worker.join_node(leader=leader.instance, control_plane_node=False) if not dry_run else None
         print(serializers.crayons.green('Successfully joined worker nodes (dry-run)')) if dry_run else None
+        print()
 
     def rollback_workers(self, dry_run=False):
         if dry_run:
@@ -257,6 +260,7 @@ class KubeCluster:
         wait = 0 if dry_run else 60
         self.wait(wait_period=wait, reason='Wait for Rollback to complete')
         print(serializers.crayons.green('Successfully removed worker nodes (dry-run)')) if dry_run else None
+        print()
 
     def post_installs(self, dry_run=False):
         # TODO: Support loadbalancer arguments yaml file, version, interface, from .cluster.yml - method supports it.
