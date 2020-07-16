@@ -160,7 +160,6 @@ class KubeCluster:
                 )
 
     def rollback_control_plane(self):
-        # TODO: Remove cluster .kube/config after rollback
         leader = self.provisioners.get(VMCategory.masters.value).get('leader')
         join = self.provisioners.get(VMCategory.masters.value).get('join')
         if self.is_control_plane_ha:
@@ -184,6 +183,7 @@ class KubeCluster:
         self.wait(wait_period=60, reason='Wait for Rollback to complete')
 
     def post_installs(self):
+        # TODO: Support loadbalancer arguments yaml file, version, interface, from .cluster.yml - method supports it.
         self.add_local_cluster_config()
 
         if self.cluster.cluster.dashboard:
@@ -194,6 +194,9 @@ class KubeCluster:
 
         if self.cluster.cluster.loadbalancer:
             self.executor.metallb_install()
+
+    def post_destroy(self):
+        self.unset_local_cluster_config()
 
     def helm_install(self):
         if not self.cluster.cluster.helm.local and not self.cluster.cluster.helm.tiller:
@@ -209,13 +212,15 @@ class KubeCluster:
             serializers.logging.warning(serializers.crayons.yellow(msg))
 
     def add_local_cluster_config(self):
-        # TODO: Support loadbalancer arguments yaml file, version, interface, from .cluster.yml - method supports it.
         self.executor.add_local_cluster_config(
             custom_user_name=self.cluster.cluster.user,
             custom_cluster_name=self.cluster.cluster.name,
             custom_context=self.cluster.cluster.context,
             set_current_context=True
         )
+
+    def unset_local_cluster_config(self):
+        self.executor.unset_local_cluster_config(self.cluster.cluster)
 
     def label_workers(self):
         workers = self.provisioners.get(VMCategory.workers.value)
@@ -250,12 +255,16 @@ class KubeCluster:
                 self.rollback_workers()
                 self.rollback_control_plane()
                 self.destroy(template=destroy_template, dry_run=dry_run)
+                self.post_destroy()
                 print(serializers.crayons.green(msg))
                 return
 
             self.rollback_workers() if stage.value == KubeClusterStages.join.value else None
             self.rollback_control_plane() if stage.value == KubeClusterStages.bootstrap.value else None
             self.destroy(template=destroy_template, dry_run=dry_run) if stage.value == KubeClusterStages.create.value else None
+            if stage.value == KubeClusterStages.post_installs.value:
+                self.executor = self._generate_executor()
+                self.post_destroy()
             print(serializers.crayons.green(msg))
             return
 
@@ -282,4 +291,3 @@ class KubeCluster:
         if stage.value == KubeClusterStages.post_installs.value:
             self.post_installs()
         print(serializers.crayons.green(msg))
-
