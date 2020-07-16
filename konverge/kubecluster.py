@@ -397,6 +397,8 @@ class KubeCluster:
             print()
         workers = self.provisioners.get(VMCategory.workers.value)
         for role, group in workers.items():
+            if role == 'default':
+                continue
             for worker in group:
                 if dry_run:
                     label_node = f'node-role.kubernetes.io/{role}='
@@ -417,11 +419,11 @@ class KubeCluster:
             stage: typing.Union[KubeClusterStages, None] = None,
             dry_run=False
     ):
-        if self.exists:
-            serializers.logging.warning(
-                serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
-            )
-            return
+        # if self.exists:
+        #     serializers.logging.warning(
+        #         serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
+        #     )
+        #     return
 
         stagemsg = f' Stage: {stage.value}' if stage else ''
         dry = ' (dry-run)' if dry_run else ''
@@ -495,8 +497,10 @@ class KubeCluster:
             self.wait(wait_period=wait_bootstrap, reason='Bootstrap Control Plane')
         if stage.value == KubeClusterStages.join.value:
             print(stage_output)
+            self.executor = self._generate_executor(dry_run=dry_run)
             self.join_workers(dry_run=dry_run)
         if stage.value == KubeClusterStages.post_installs.value:
             print(stage_output)
+            self.executor = self._generate_executor(dry_run=dry_run)
             self.post_installs(dry_run=dry_run)
         print(serializers.crayons.green(msg))

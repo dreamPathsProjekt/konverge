@@ -344,7 +344,7 @@ class KubeProvisioner:
         return (
             f'kubeadm join {self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash} --control-plane --certificate-key {certificate_key}'
         ) if control_plane_node else (
-            f'kubeadm join {self.instance.allowed_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash}'
+            f'kubeadm join {self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash}'
         )
 
     def join_node(self, leader: InstanceClone, control_plane_node=False, certificate_key=''):
@@ -824,6 +824,7 @@ class KubeExecutor:
             self.wait_for_running_system_status()
             time.sleep(10)
             print(crayons.magenta('You might need to run "helm init --client-only to initialize repos"'))
+            self.local.run(f'{prepend} helm init --client-only')
 
     def tiller_install_v2_patch(self):
         prepend = f'HOME={self.home}'
