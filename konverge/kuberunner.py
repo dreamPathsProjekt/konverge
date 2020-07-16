@@ -2,6 +2,7 @@ from konverge import serializers
 
 
 class KubeRunner:
+    # TODO: Refactor dry-run blocks if possible.
     allocated_vmids: set = set()
 
     def __init__(self, serializer: serializers.ClusterInstanceSerializer):
