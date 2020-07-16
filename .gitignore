@@ -82,3 +82,6 @@ topology.json
 .pve.yaml
 .proxmox.yml
 .proxmox.yaml
+
+# Dry-run output
+.plan.txt
