@@ -166,15 +166,7 @@ class ClusterInstanceSerializer:
         self.hotplug_size = self.disk.get('hotplug_size') if self.disk else None
 
         self.instances = []
-        self.state = {
-            node: [
-                {
-                    'name': None,
-                    'vmid': settings.VMID_PLACEHOLDER,
-                    'exists': False
-                }
-            ] for node in self.nodes
-        }
+        self.state = {node: [] for node in self.nodes}
 
     @property
     def hotplug_valid(self):
@@ -221,6 +213,13 @@ class ClusterInstanceSerializer:
                 username=self.username
             )
             self.instances.append(clone)
+            self.state[clone.vm_attributes.node].append(
+                {
+                    'name': clone.vm_attributes.name,
+                    'vmid': clone.vmid,
+                    'exists': False
+                }
+            )
 
     def query(self):
         if not self.instances:
@@ -234,21 +233,26 @@ class ClusterInstanceSerializer:
                 node=instance.vm_attributes.node
             )
             answer = query.execute()
+            answermsg = f'VMID: {answer[0].vmid}, Name: {answer[0].vm_attributes.name}' if answer else 'Not Found'
             print(
                 crayons.white(
-                    f'Query {instance.vm_attributes.name}: {answer[0].vm_attributes.name if answer else "Not Found"}'
+                    f'Query instance {instance.vm_attributes.name}: {answermsg}'
                 )
             )
             created_instance = answer[0] if answer else answer
             if created_instance:
+                vms_state = self.state[instance.vm_attributes.node]
+                match = lambda vm: vm.get('name') and vm.get('name') == created_instance.vm_attributes.name
+                member = list(filter(match, vms_state))[0]
+                index = vms_state.index(member) if member else None
                 self.instances[self.instances.index(instance)] = created_instance
-                self.state[instance.vm_attributes.node].append(
-                    {
+                if index:
+                    self.state[instance.vm_attributes.node][index] = {
                         'name': created_instance.vm_attributes.name,
                         'vmid': created_instance.vmid,
                         'exists': True
                     }
-                )
+
         for node in self.nodes:
             if any(item['exists'] for item in self.state[node]):
                 return True

@@ -24,6 +24,7 @@ CNI = {
 KUBE_DASHBOARD_URL = 'https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta4/aio/deploy/recommended.yaml'
 
 VMID_PLACEHOLDER = 9999
+allocated_vmids = set()
 
 def cluster_config_factory(filename=None, config_type='pve'):
     cluster_type = {

@@ -52,12 +52,12 @@ class CommonVMMixin:
             return False
         return list(filter(lambda vm: int(self.vmid) == int(vm.get('vmid')), vms))[0].get('status') == 'running'
 
-    def generate_vmid_and_username(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         raise NotImplementedError
 
-    def get_vmid_and_username(self):
+    def get_vmid_and_username(self, external: set = None):
         id_prefix = get_id_prefix(proxmox_node_scale=settings.node_scale, node=self.vm_attributes.node)
-        return self.generate_vmid_and_username(id_prefix=id_prefix)
+        return self.generate_vmid_and_username(id_prefix=id_prefix, external=external)
 
     def get_vm_config(self):
         return self.client.get_vm_config(node=self.vm_attributes.node, vmid=self.vmid)

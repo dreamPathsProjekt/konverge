@@ -2,6 +2,8 @@ from konverge import serializers
 
 
 class KubeRunner:
+    allocated_vmids: set = set()
+
     def __init__(self, serializer: serializers.ClusterInstanceSerializer):
         self.serializer = serializer
 
@@ -12,68 +14,82 @@ class KubeRunner:
     def is_valid(self):
         return self.serializer.hotplug_valid
 
+    @classmethod
+    def set_allocated(cls, vmid):
+        cls.allocated_vmids.add(int(vmid))
+
+    @classmethod
+    def unset_allocated(cls, vmid):
+        cls.allocated_vmids.remove(int(vmid))
+
     def create(self, disable_backups=False, dry_run=False):
         if not self.is_valid:
             return
-
         exist = self.query()
-        # TODO: Fix worker groups create only element 0.
-        # Bug exists when there is single node on node attribute.
-        # Also look serializer state.
+
         for instance in self.serializer.instances:
             state: list = self.serializer.state[instance.vm_attributes.node]
 
-            for member in state:
-                # Bug: member has no name when running clear.
-                match = member.get('name') == instance.vm_attributes.name
-                if member.get('name') and not match:
-                    serializers.logging.warning(
-                        serializers.crayons.yellow(f'Skipping instance state: {member}')
-                    )
-                    continue
-                if exist and member.get('exists'):
-                    serializers.logging.warning(
-                        serializers.crayons.yellow(f'Skipping instance state: {member}')
-                    )
-                    continue
-                index = state.index(member)
-                print(f'Name {instance.vm_attributes.name} Index: {index}')
-                instance.vmid, _ = instance.get_vmid_and_username()
-                vmid = instance.execute(start=True, dry_run=dry_run)
-                if disable_backups:
-                    instance.disable_backups()
-                state[index] = {
-                    'name': instance.vm_attributes.name,
-                    'vmid': vmid,
-                    'exists': True
-                }
+            print(serializers.crayons.cyan(f'Node: {instance.vm_attributes.node} - State: {state}'))
+            match = lambda vm: vm.get('name') and vm.get('name') == instance.vm_attributes.name
+            member = list(filter(match, state))[0]
+            index = state.index(member) if member else None
+
+            # Fix: do not use: ```if not index``` - ```index == 0``` is considered falsy.
+            if index is None:
+                serializers.logging.warning(
+                    serializers.crayons.yellow(f'{instance.vm_attributes.name} not found in state. Skip create: {member}')
+                )
+                continue
+            if exist and member.get('exists'):
+                serializers.logging.warning(
+                    serializers.crayons.yellow(f'{instance.vm_attributes.name} exists. Skip create: {member}')
+                )
+                continue
+            instance.vmid, _ = instance.get_vmid_and_username(external=self.allocated_vmids)
+            vmid = instance.execute(start=True, dry_run=dry_run)
+            self.set_allocated(vmid)
+            if disable_backups:
+                instance.disable_backups()
+            state[index] = {
+                'name': instance.vm_attributes.name,
+                'vmid': vmid,
+                'exists': True
+            }
 
     def destroy(self, dry_run=False):
         if not self.query():
+            serializers.logging.warning(
+                serializers.crayons.yellow(f'No {self.serializer.name} instances exist. Skip destroy.')
+            )
             return
 
         for instance in self.serializer.instances:
             state: list = self.serializer.state[instance.vm_attributes.node]
 
-            for member in state:
-                match = member.get('vmid') == instance.vmid or member.get('name') == instance.vm_attributes.name
-                if not match:
-                    serializers.logging.warning(
-                        serializers.crayons.yellow(f'Skipping instance state: {member}')
-                    )
-                    continue
-                if not member.get('exists'):
-                    serializers.logging.warning(
-                        serializers.crayons.yellow(f'Skipping instance state: {member}')
-                    )
-                    continue
-                index = state.index(member)
-                instance.execute(destroy=True, dry_run=dry_run)
-                state[index] = {
-                    'name': instance.vm_attributes.name,
-                    'vmid': serializers.settings.VMID_PLACEHOLDER,
-                    'exists': False
-                }
+            print(serializers.crayons.cyan(f'Node: {instance.vm_attributes.node} - State: {state}'))
+            match = lambda vm: vm.get('vmid') == instance.vmid or vm.get('name') == instance.vm_attributes.name
+            member = list(filter(match, state))[0]
+            index = state.index(member) if member else None
+
+            if index is None:
+                serializers.logging.warning(
+                    serializers.crayons.yellow(
+                        f'{instance.vm_attributes.name} not found in state. Skip destroy: {member}')
+                )
+                continue
+            if not member.get('exists'):
+                serializers.logging.warning(
+                    serializers.crayons.yellow(f'{instance.vm_attributes.name} does not exist. Skip destroy: {member}')
+                )
+                continue
+            instance.execute(destroy=True, dry_run=dry_run)
+            self.unset_allocated(instance.vmid)
+            state[index] = {
+                'name': instance.vm_attributes.name,
+                'vmid': serializers.settings.VMID_PLACEHOLDER,
+                'exists': False
+            }
 
 
 class KubeTemplateRunner(KubeRunner):
@@ -98,7 +114,7 @@ class KubeTemplateRunner(KubeRunner):
             if exist and self.serializer.template_exists(instance.vm_attributes.node):
                 serializers.logging.warning(
                     serializers.crayons.yellow(
-                        f'Skipping template state: {self.serializer.state[instance.vm_attributes.node]}'
+                        f'{instance.vm_attributes.name} exists. Skip create: {self.serializer.state[instance.vm_attributes.node]}'
                     )
                 )
                 continue
@@ -121,7 +137,7 @@ class KubeTemplateRunner(KubeRunner):
             if not self.serializer.template_exists(instance.vm_attributes.node):
                 serializers.logging.warning(
                     serializers.crayons.yellow(
-                        f'Skipping template state: {self.serializer.state[instance.vm_attributes.node]}'
+                        f'{instance.vm_attributes.name} does not exist. Skip destroy: {self.serializer.state[instance.vm_attributes.node]}'
                     )
                 )
                 continue

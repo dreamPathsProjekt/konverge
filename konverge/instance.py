@@ -63,11 +63,13 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         else:
             self.vm_attributes.description = f'Kubernetes node {self.vm_attributes.name}'
 
-    def generate_vmid_and_username(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         start = int(f'{id_prefix}01')
         end = int(f'{id_prefix + 1}00')
         vmids = [vm.get('vmid') for vm in self.client.get_cluster_vms(node=self.vm_attributes.node)]
         allocated_ids = set(int(vmid) for vmid in vmids) if vmids else None
+        if external:
+            [allocated_ids.add(item) for item in external]
 
         username = self.template.username if self.template else 'ubuntu'
         for vmid in range(start, end):

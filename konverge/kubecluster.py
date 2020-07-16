@@ -237,10 +237,13 @@ class KubeCluster:
             )
             return
 
-        stage = f' Stage: {stage.value}' if stage else ''
+        stagemsg = f' Stage: {stage.value}' if stage else ''
         dry = ' (dry-run)' if dry_run else ''
         action = 'destroyed' if destroy else 'created'
-        msg = f'Cluster {self.cluster.cluster.name} successfully {action}.{stage}{dry}'
+        msg = f'Cluster {self.cluster.cluster.name} successfully {action}.{stagemsg}{dry}'
+
+        wait_create = 0 if dry_run else wait_period
+        wait_bootstrap = 0 if dry_run else 120
 
         if destroy:
             if not stage:
@@ -250,32 +253,33 @@ class KubeCluster:
                 print(serializers.crayons.green(msg))
                 return
 
-            self.rollback_workers() if stage == KubeClusterStages.join.value else None
-            self.rollback_control_plane() if stage == KubeClusterStages.bootstrap.value else None
-            self.destroy(template=destroy_template, dry_run=dry_run) if stage == KubeClusterStages.create.value else None
+            self.rollback_workers() if stage.value == KubeClusterStages.join.value else None
+            self.rollback_control_plane() if stage.value == KubeClusterStages.bootstrap.value else None
+            self.destroy(template=destroy_template, dry_run=dry_run) if stage.value == KubeClusterStages.create.value else None
             print(serializers.crayons.green(msg))
             return
 
         if not stage:
             self.create(dry_run=dry_run)
-            # self.wait(wait_period, reason='Create & Start Cluster VMs')
-            # self.executor = self._generate_executor()
-            # self.boostrap_control_plane()
-            # self.wait(wait_period, reason='Bootstrap Control Plane')
-            # self.join_workers()
-            # self.post_installs()
+            self.wait(wait_period=wait_create, reason='Create & Start Cluster VMs')
+            self.executor = self._generate_executor()
+            self.boostrap_control_plane()
+            self.wait(wait_period=wait_bootstrap, reason='Bootstrap Control Plane')
+            self.join_workers()
+            self.post_installs()
             print(serializers.crayons.green(msg))
             return
 
-        # if stage == KubeClusterStages.create.value:
-        #     self.create()
-        #     self.wait(wait_period, reason='Create & Start Cluster VMs')
-        # if stage == KubeClusterStages.bootstrap.value:
-        #     self.executor = self._generate_executor()
-        #     self.boostrap_control_plane()
-        #     self.wait(wait_period, reason='Bootstrap Control Plane')
-        # if stage == KubeClusterStages.join.value:
-        #     self.join_workers()
-        #     self.post_installs()
-        # print(serializers.crayons.green(msg))
+        if stage.value == KubeClusterStages.create.value:
+            self.create(dry_run=dry_run)
+            self.wait(wait_period=wait_create, reason='Create & Start Cluster VMs')
+        if stage.value == KubeClusterStages.bootstrap.value:
+            self.executor = self._generate_executor()
+            self.boostrap_control_plane()
+            self.wait(wait_period=wait_bootstrap, reason='Bootstrap Control Plane')
+        if stage.value == KubeClusterStages.join.value:
+            self.join_workers()
+        if stage.value == KubeClusterStages.post_installs.value:
+            self.post_installs()
+        print(serializers.crayons.green(msg))
 

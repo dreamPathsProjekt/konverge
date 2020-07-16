@@ -176,10 +176,10 @@ class KubeClusterAction(EnumCommon):
 
 
 class KubeClusterStages(EnumCommon):
-    start = 'start'
     create = 'create'
     bootstrap = 'bootstrap'
     join = 'join'
+    post_installs = 'post_installs'
 
 
 class VMAttributes:

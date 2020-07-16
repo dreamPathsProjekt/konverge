@@ -79,7 +79,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
     def _update_description(self):
         self.vm_attributes.description = 'Generic Linux base template VM created by CloudImage.'
 
-    def generate_vmid_and_username(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         raise NotImplementedError
 
     def download_cloudinit_image(self):
@@ -202,7 +202,7 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
             )
         return predicate
 
-    def generate_vmid_and_username(self, id_prefix, preinstall=True):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         template_vmid = int(f'{id_prefix}100') if self.preinstall else int(f'{id_prefix}000')
         username = 'ubuntu'
         return template_vmid, username
@@ -213,7 +213,8 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
         docker_version='18.09.7',
         docker_ce=False,
         storageos_requirements=False,
-        destroy=False
+        destroy=False,
+        dry_run=False
     ):
         suffix = '-0ubuntu1~18.04.4' if 'ubuntu' not in docker_version else ''
         super().execute(
@@ -221,7 +222,8 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
             docker_version=f'{docker_version}{suffix}',
             docker_ce=docker_ce,
             storageos_requirements=storageos_requirements,
-            destroy=destroy
+            destroy=destroy,
+            dry_run=dry_run
         )
 
     def install_storageos_requirements(self):
@@ -261,7 +263,7 @@ class CentosCloudInitTemplate(CloudinitTemplate):
             )
         return predicate
 
-    def generate_vmid_and_username(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         template_vmid = int(f'{id_prefix}101') if self.preinstall else int(f'{id_prefix}001')
         username = 'centos'
         return template_vmid, username
@@ -272,14 +274,16 @@ class CentosCloudInitTemplate(CloudinitTemplate):
         docker_version='18.09.7',
         docker_ce=False,
         storageos_requirements=False,
-        destroy=False
+        destroy=False,
+        dry_run=False
     ):
         super().execute(
             kubernetes_version=kubernetes_version,
             docker_version=docker_version,
             docker_ce=docker_ce,
             storageos_requirements=storageos_requirements,
-            destroy=destroy
+            destroy=destroy,
+            dry_run=dry_run
         )
 
     def install_storageos_requirements(self):
