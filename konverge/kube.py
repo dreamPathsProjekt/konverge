@@ -330,7 +330,9 @@ class KubeProvisioner:
                 if 'authentication,signing' in line:
                     print(crayons.white(line))
                     join_token = line.split()[0].strip()
+            join_url = f'{self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port}'
         else:
+            join_url = f'{self.instance.allowed_ip}:{self.control_plane.apiserver_port}'
             join_token = self.instance.self_node_sudo.execute("kubeadm token list | awk '{print $1}'").stdout.split('TOKEN')[-1].strip()
             while not join_token:
                 logging.warning(crayons.yellow('Join Token not found on master. Creating new join token...'))
@@ -342,9 +344,9 @@ class KubeProvisioner:
             return None
 
         return (
-            f'kubeadm join {self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash} --control-plane --certificate-key {certificate_key}'
+            f'kubeadm join {join_url} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash} --control-plane --certificate-key {certificate_key}'
         ) if control_plane_node else (
-            f'kubeadm join {self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash}'
+            f'kubeadm join {join_url} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash}'
         )
 
     def join_node(self, leader: InstanceClone, control_plane_node=False, certificate_key=''):
