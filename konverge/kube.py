@@ -7,7 +7,7 @@ from typing import NamedTuple, TYPE_CHECKING
 from fabric2 import Result
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
-from konverge.utils import LOCAL
+from konverge.utils import LOCAL, semver_has_patch_suffix
 from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, pve_cluster_config_client, vm_client
 
 # Avoid cyclic import
@@ -91,6 +91,16 @@ class KubeProvisioner:
         except (OSError, IOError) as file_write_error:
             logging.error(crayons.red(file_write_error))
             return None, None, file_write_error
+
+    def is_alive(self):
+        try:
+            return self.instance.self_node.execute(command='uptime', warn=True).ok
+        except Exception as notready:
+            logging.warning(crayons.yellow(notready))
+            logging.warning(crayons.yellow(f'Retry connection on {self.instance.vm_attributes.name}'))
+            self.instance.self_node = FabricWrapper(host=self.instance.vm_attributes.name)
+            self.instance.self_node_sudo = FabricWrapper(host=self.instance.vm_attributes.name, sudo=True)
+            return False
 
     def install_kube(
             self,
@@ -223,6 +233,7 @@ class KubeProvisioner:
         sent2 = local.run(f'scp {local_script_path} {host}:~')
 
         if sent1.ok and sent2.ok:
+            self.wait_pkg_lock()
             print(crayons.blue(f'Installing keepalived service on {host}'))
 
             self.check_install_prerequisites()
@@ -238,7 +249,10 @@ class KubeProvisioner:
                     print(crayons.green(f'Keepalived running on {host} with virtual ip: {virtual_ip}'))
             return virtual_ip
 
-    def bootstrap_control_plane(self):
+    def wait_pkg_lock(self):
+        raise NotImplementedError
+
+    def bootstrap_control_plane(self, version='1.16'):
         cni_definitions = self.supported_cnis(networking=self.control_plane.networking)
 
         print(crayons.cyan(f'Building K8s Control-Plane using High Availability: {self.control_plane.ha_masters}'))
@@ -254,13 +268,15 @@ class KubeProvisioner:
             self.instance.self_node.execute(f'wget {cni_definitions.cni_url} -O {os.path.join(self.remote_path, cni_definitions.file)}')
 
         print(crayons.cyan('Pulling Required Images from gcr.io'))
-        self.instance.self_node_sudo.execute('kubeadm config images pull')
+        has_patch, _, _, _ = semver_has_patch_suffix(version)
+        image_version = version if has_patch else f'stable-{version}'
+        self.instance.self_node_sudo.execute(f'kubeadm config images pull --kubernetes-version {image_version}')
 
         print(crayons.blue('Running pre-flight checks & deploying Control Plane'))
         init_command = (
-            f'kubeadm init --control-plane-endpoint "{self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port}" --upload-certs {cni_definitions.networking_option}'
+            f'kubeadm init --control-plane-endpoint "{self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port}" --upload-certs {cni_definitions.networking_option} --kubernetes-version {image_version}'
         ) if self.control_plane.ha_masters else (
-            f'kubeadm init {cni_definitions.networking_option}'
+            f'kubeadm init {cni_definitions.networking_option} --kubernetes-version {image_version}'
         )
 
         deployed = self.instance.self_node_sudo.execute(init_command)
@@ -398,6 +414,14 @@ class UbuntuKubeProvisioner(KubeProvisioner):
                 print(crayons.cyan(f'Installing {package.package}'))
                 self.instance.self_node_sudo.execute(f'apt-get install -y {package.package}')
 
+    def wait_pkg_lock(self):
+        exit_code = False
+        while not exit_code:
+            exit_code = self.instance.self_node_sudo.execute('apt-get update', warn=True).ok
+            print(crayons.white('Waiting 10 secs to acquire dpkg lock.'))
+            time.sleep(10)
+        print(crayons.green('Dpkg lock released.'))
+
 
 class CentosKubeProvisioner(KubeProvisioner):
     def check_install_prerequisites(self):
@@ -414,6 +438,9 @@ class CentosKubeProvisioner(KubeProvisioner):
                 logging.warning(crayons.yellow(f'Package: {package.package} not found.'))
                 print(crayons.cyan(f'Installing {package.package}'))
                 self.instance.self_node_sudo.execute(f'yum install -y {package.package}')
+
+    def wait_pkg_lock(self):
+        pass
 
 
 class KubeConfig:

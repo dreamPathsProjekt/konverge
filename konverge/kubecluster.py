@@ -99,6 +99,7 @@ class KubeCluster:
         Lazy load KubeExecutor with remote feature, until leader is online.
         """
         leader = self.provisioners.get(VMCategory.masters.value).get('leader').instance
+
         if dry_run:
             title = f'Generating KubeExecutor from leader: {leader.vm_attributes.name}'
             horizontal_sep = '=' * len(title)
@@ -121,9 +122,34 @@ class KubeCluster:
             print()
             # return dummy executor
             return serializers.KubeExecutor()
+
+        self._wait_for_masters_alive()
         return serializers.KubeExecutor(
             leader.self_node
         ) if not destroy else serializers.KubeExecutor()
+
+    def _wait_for_masters_alive(self):
+        leader = self.provisioners.get(VMCategory.masters.value).get('leader')
+        while not leader.is_alive():
+            self.wait(wait_period=30, reason=f'Leader {leader.instance.vm_attributes.name} is not yet responsive.')
+        if self.control_plane.control_plane.ha_masters:
+            join = self.provisioners.get(VMCategory.masters.value).get('join')
+            for master in join:
+                while not master.is_alive():
+                    self.wait(
+                        wait_period=30,
+                        reason=f'Master {master.instance.vm_attributes.name} is not yet responsive.'
+                    )
+
+    def _wait_for_workers_alive(self):
+        roles = self.provisioners.get(VMCategory.workers.value)
+        for _, workers in roles.items():
+            for worker in workers:
+                while not worker.is_alive():
+                    self.wait(
+                        wait_period=10,
+                        reason=f'Worker {worker.instance.vm_attributes.name} is not yet responsive.'
+                    )
 
     def create(self, disable_backups=False, dry_run=False):
         for category, runners in self.runners.items():
@@ -177,6 +203,8 @@ class KubeCluster:
     def boostrap_control_plane(self, dry_run=False):
         leader = self.provisioners.get(VMCategory.masters.value).get('leader')
         join = self.provisioners.get(VMCategory.masters.value).get('join')
+
+        self._wait_for_masters_alive() if not dry_run else None
         ready = self.install_loadbalancer(dry_run=dry_run)
 
         if dry_run:
@@ -194,7 +222,7 @@ class KubeCluster:
             return
 
         print(serializers.crayons.cyan(f'Boostrap Leader master node: {leader.instance.vm_attributes.name}'))
-        cert_key = leader.bootstrap_control_plane() if not dry_run else None
+        cert_key = leader.bootstrap_control_plane(self.cluster.cluster.version) if not dry_run else None
         if self.is_control_plane_ha:
             for master in join:
                 print(serializers.crayons.cyan(f'Join master node: {master.instance.vm_attributes.name}'))
@@ -237,6 +265,8 @@ class KubeCluster:
             print()
         leader = self.provisioners.get(VMCategory.masters.value).get('leader')
         workers = self.provisioners.get(VMCategory.workers.value)
+        self._wait_for_workers_alive() if not dry_run else None
+
         for role, group in workers.items():
             for worker in group:
                 print(serializers.crayons.cyan(f'Joining worker node: {worker.instance.vm_attributes.name}'))
