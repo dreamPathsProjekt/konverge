@@ -9,7 +9,7 @@ from konverge.utils import (
     Storage,
     BackupMode
 )
-from konverge.settings import cluster_config_client
+from konverge.settings import pve_cluster_config_client
 from konverge.cloudinit import CloudinitTemplate
 
 
@@ -28,7 +28,7 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         self.client = client
         self.template = template
         self.proxmox_node = proxmox_node if proxmox_node else (
-            cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
+            pve_cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
         )
         self.self_node = FabricWrapper(host=vm_attributes.name)
         self.self_node_sudo = FabricWrapper(host=vm_attributes.name, sudo=True)
@@ -63,11 +63,13 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         else:
             self.vm_attributes.description = f'Kubernetes node {self.vm_attributes.name}'
 
-    def generate_vmid_and_username(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         start = int(f'{id_prefix}01')
         end = int(f'{id_prefix + 1}00')
         vmids = [vm.get('vmid') for vm in self.client.get_cluster_vms(node=self.vm_attributes.node)]
         allocated_ids = set(int(vmid) for vmid in vmids) if vmids else None
+        if external:
+            [allocated_ids.add(item) for item in external]
 
         username = self.template.username if self.template else 'ubuntu'
         for vmid in range(start, end):
@@ -86,7 +88,8 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             source_vmid=self.template.vmid,
             target_vmid=self.vmid,
             name=self.vm_attributes.name,
-            description=self.vm_attributes.description
+            description=self.vm_attributes.description,
+            pool=self.template.vm_attributes.pool
         )
         if not self.log_create_delete(created):
             return created
@@ -112,6 +115,25 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         if self.vm_attributes.disk_size != self.template.vm_attributes.disk_size:
             self.resize_disk()
 
+    def disable_backups(self, drive_slot=0, all_drives=False):
+        if not all_drives:
+            return self.client.disable_backups(
+                node=self.vm_attributes.node,
+                vmid=self.vmid,
+                scsi=self.vm_attributes.scsi,
+                drive_slot=drive_slot
+            )
+        slots = self.get_unallocated_disk_slots()
+        return [
+            self.client.disable_backups(
+                node=self.vm_attributes.node,
+                vmid=self.vmid,
+                scsi=self.vm_attributes.scsi,
+                drive_slot=slot
+            )
+            for slot in range(slots)
+        ]
+
     def backup_export(self, storage: Storage = None, backup_mode: BackupMode = BackupMode.stop):
         if backup_mode == BackupMode.stop:
             print(crayons.blue(f'Stop VM {self.vmid}'))
@@ -132,7 +154,10 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             logging.warning(crayons.yellow('Backup job issued. See proxmox dashboard for task details & completion.'))
         return started
 
-    def execute(self, start=False, destroy=False):
+    def execute(self, start=False, destroy=False, dry_run=False):
+        if dry_run:
+            self.dry_run(destroy=destroy, instance=True)
+            return self.vmid
         if destroy:
             self.stop_stage()
             self.destroy_vm()
@@ -156,4 +181,6 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
 
         if start:
             print(crayons.cyan(f'Start requested - Starting VM: {self.vm_attributes.name} {self.vmid}'))
-            self.start_stage()
+            self.start_stage(wait_minutes=0)
+
+        return self.vmid

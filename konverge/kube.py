@@ -3,13 +3,16 @@ import time
 import uuid
 import yaml
 
-from typing import NamedTuple
+from typing import NamedTuple, TYPE_CHECKING
 from fabric2 import Result
 
 from konverge.instance import logging, crayons, InstanceClone, FabricWrapper
-from konverge.utils import LOCAL
-from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, cluster_config_client, vm_client
+from konverge.utils import LOCAL, semver_has_patch_suffix
+from konverge.settings import BASE_PATH, WORKDIR, CNI, KUBE_DASHBOARD_URL, pve_cluster_config_client, vm_client
 
+# Avoid cyclic import
+if TYPE_CHECKING:
+    from konverge.serializers import ClusterAttributesSerializer
 
 class LinuxPackage(NamedTuple):
     command: str
@@ -24,10 +27,10 @@ class ControlPlaneDefinitions:
         apiserver_ip: str = '',
         apiserver_port: int = 6443,
     ):
-        self.ha_masters = ha_masters
-        self.networking = networking
-        self.apiserver_ip = apiserver_ip
-        self.apiserver_port = apiserver_port
+        self.ha_masters = ha_masters if ha_masters is not None else False
+        self.networking = networking if networking else 'weave'
+        self.apiserver_ip = apiserver_ip if apiserver_ip else None
+        self.apiserver_port = apiserver_port if apiserver_port else 6443
 
 
 class CNIDefinitions(NamedTuple):
@@ -89,16 +92,28 @@ class KubeProvisioner:
             logging.error(crayons.red(file_write_error))
             return None, None, file_write_error
 
+    def is_alive(self):
+        try:
+            return self.instance.self_node.execute(command='uptime', warn=True).ok
+        except Exception as notready:
+            logging.warning(crayons.yellow(notready))
+            logging.warning(crayons.yellow(f'Retry connection on {self.instance.vm_attributes.name}'))
+            self.instance.self_node = FabricWrapper(host=self.instance.vm_attributes.name)
+            self.instance.self_node_sudo = FabricWrapper(host=self.instance.vm_attributes.name, sudo=True)
+            return False
+
     def install_kube(
             self,
             kubernetes_version='1.16.3-00',
             docker_version='18.09.7',
+            docker_ce=False,
             storageos_requirements=False
     ):
         self.instance.install_kube(
             filename=self.instance.template.filename,
             kubernetes_version=kubernetes_version,
             docker_version=docker_version,
+            docker_ce=docker_ce,
             storageos_requirements=storageos_requirements
         )
 
@@ -218,6 +233,7 @@ class KubeProvisioner:
         sent2 = local.run(f'scp {local_script_path} {host}:~')
 
         if sent1.ok and sent2.ok:
+            self.wait_pkg_lock()
             print(crayons.blue(f'Installing keepalived service on {host}'))
 
             self.check_install_prerequisites()
@@ -233,7 +249,10 @@ class KubeProvisioner:
                     print(crayons.green(f'Keepalived running on {host} with virtual ip: {virtual_ip}'))
             return virtual_ip
 
-    def bootstrap_control_plane(self):
+    def wait_pkg_lock(self):
+        raise NotImplementedError
+
+    def bootstrap_control_plane(self, version='1.16'):
         cni_definitions = self.supported_cnis(networking=self.control_plane.networking)
 
         print(crayons.cyan(f'Building K8s Control-Plane using High Availability: {self.control_plane.ha_masters}'))
@@ -249,13 +268,15 @@ class KubeProvisioner:
             self.instance.self_node.execute(f'wget {cni_definitions.cni_url} -O {os.path.join(self.remote_path, cni_definitions.file)}')
 
         print(crayons.cyan('Pulling Required Images from gcr.io'))
-        self.instance.self_node_sudo.execute('kubeadm config images pull')
+        has_patch, _, _, _ = semver_has_patch_suffix(version)
+        image_version = version if has_patch else f'stable-{version}'
+        self.instance.self_node_sudo.execute(f'kubeadm config images pull --kubernetes-version {image_version}')
 
         print(crayons.blue('Running pre-flight checks & deploying Control Plane'))
         init_command = (
-            f'kubeadm init --control-plane-endpoint "{self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port}" --upload-certs {cni_definitions.networking_option}'
+            f'kubeadm init --control-plane-endpoint "{self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port}" --upload-certs {cni_definitions.networking_option} --kubernetes-version {image_version}'
         ) if self.control_plane.ha_masters else (
-            f'kubeadm init {cni_definitions.networking_option}'
+            f'kubeadm init {cni_definitions.networking_option} --kubernetes-version {image_version}'
         )
 
         deployed = self.instance.self_node_sudo.execute(init_command)
@@ -317,6 +338,13 @@ class KubeProvisioner:
             print(crayons.green(f'Container Networking {self.control_plane.networking} deployed successfully.'))
             return True
 
+    def get_join_token_v2(self, control_plane_node=False):
+        join_command = self.instance.self_node.execute("kubeadm token create --print-join-command | tail -n 1").stdout.strip('\n')
+        if control_plane_node:
+            certificate_key = self.instance.self_node_sudo.execute("sudo kubeadm init phase upload-certs --upload-certs  | tail -n 1").stdout.strip('\n')
+            return f'{join_command} --v 5 --control-plane --certificate-key {certificate_key}'
+        return join_command
+
     def get_join_token(self, control_plane_node=False, certificate_key=''):
         join_token = ''
         if self.control_plane.ha_masters:
@@ -325,7 +353,9 @@ class KubeProvisioner:
                 if 'authentication,signing' in line:
                     print(crayons.white(line))
                     join_token = line.split()[0].strip()
+            join_url = f'{self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port}'
         else:
+            join_url = f'{self.instance.allowed_ip}:{self.control_plane.apiserver_port}'
             join_token = self.instance.self_node_sudo.execute("kubeadm token list | awk '{print $1}'").stdout.split('TOKEN')[-1].strip()
             while not join_token:
                 logging.warning(crayons.yellow('Join Token not found on master. Creating new join token...'))
@@ -337,9 +367,9 @@ class KubeProvisioner:
             return None
 
         return (
-            f'kubeadm join {self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash} --control-plane --certificate-key {certificate_key}'
+            f'kubeadm join {join_url} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash} --control-plane --certificate-key {certificate_key}'
         ) if control_plane_node else (
-            f'kubeadm join {self.instance.allowed_ip}:{self.control_plane.apiserver_port} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash}'
+            f'kubeadm join {join_url} --token {join_token} --discovery-token-ca-cert-hash sha256:{cert_hash}'
         )
 
     def join_node(self, leader: InstanceClone, control_plane_node=False, certificate_key=''):
@@ -348,10 +378,14 @@ class KubeProvisioner:
             control_plane=self.control_plane,
             remote_path=self.remote_path
         )
-        join_command = leader_provisioner.get_join_token(control_plane_node, certificate_key)
+        if not certificate_key or not leader.allowed_ip:
+            join_command = leader_provisioner.get_join_token_v2(control_plane_node)
+        else:
+            join_command = leader_provisioner.get_join_token(control_plane_node, certificate_key)
         if not join_command:
             logging.error(crayons.red('Node Join command not generated. Abort.'))
             return
+        print(crayons.white(f'Join command: {join_command}'))
         print(crayons.cyan(f'Joining Node: {self.instance.vm_attributes.name} to the cluster'))
         join = self.instance.self_node_sudo.execute(join_command)
         if join.failed:
@@ -380,6 +414,14 @@ class UbuntuKubeProvisioner(KubeProvisioner):
                 print(crayons.cyan(f'Installing {package.package}'))
                 self.instance.self_node_sudo.execute(f'apt-get install -y {package.package}')
 
+    def wait_pkg_lock(self):
+        exit_code = False
+        while not exit_code:
+            exit_code = self.instance.self_node_sudo.execute('apt-get update', warn=True).ok
+            print(crayons.white('Waiting 10 secs to acquire dpkg lock.'))
+            time.sleep(10)
+        print(crayons.green('Dpkg lock released.'))
+
 
 class CentosKubeProvisioner(KubeProvisioner):
     def check_install_prerequisites(self):
@@ -396,6 +438,9 @@ class CentosKubeProvisioner(KubeProvisioner):
                 logging.warning(crayons.yellow(f'Package: {package.package} not found.'))
                 print(crayons.cyan(f'Installing {package.package}'))
                 self.instance.self_node_sudo.execute(f'yum install -y {package.package}')
+
+    def wait_pkg_lock(self):
+        pass
 
 
 class KubeConfig:
@@ -450,6 +495,22 @@ class KubeConfig:
                 print(crayons.red(f'Error: failed to load from {local_dump_file}'))
                 print(crayons.red(f'{yaml_error}'))
                 return None
+
+    def cluster_exists(self):
+        if not self.clusters:
+            return False
+
+        terms = []
+        if self.custom_cluster_name:
+            cluster = self.custom_cluster_name in [cluster.get('name') for cluster in self.clusters]
+            terms.append(cluster)
+        if self.custom_user_name:
+            user = self.custom_user_name in [user.get('name') for user in self.users]
+            terms.append(user)
+        if self.custom_context:
+            context = self.custom_context in [context.get('name') for context in self.contexts]
+            terms.append(context)
+        return all(terms) if terms else False
 
     def update_current_context(self, new_context):
         if not self.current_context:
@@ -526,6 +587,12 @@ class KubeExecutor:
         self.host = self.wrapper.connection.original_host if self.wrapper else None
         self.home = os.path.expanduser('~')
         self.remote = self.wrapper.execute('echo $HOME', hide=True).stdout.strip() if self.wrapper else None
+
+    def remove_cluster_node(self, instance: InstanceClone):
+        print(crayons.cyan(f'Removing node {instance.vm_attributes.name}'))
+        remove = self.local.run(f'HOME={self.home} kubectl delete node {instance.vm_attributes.name}')
+        if remove.ok:
+            print(crayons.green(f'Node {instance.vm_attributes.name} removed from cluster.'))
 
     def get_current_context(self):
         print(crayons.cyan('Verify that the cluster and context are the correct ones'))
@@ -650,14 +717,29 @@ class KubeExecutor:
             self.local.run(f'mv {local_config_base}.bak {local_config_base}')
             print(crayons.green('Rollback complete'))
 
-    # TODO: Refactor signature to accept KubeCluster instance type instead of cluster_name and cluster
-    def unset_local_cluster_config(self, cluster_name: str, cluster: dict):
-        user = cluster.get('user')
-        context = cluster.get('context')
+    # Use str type annotation for cluster, to avoid cyclic import.
+    def unset_local_cluster_config(self, cluster: 'ClusterAttributesSerializer'):
+        if not self.cluster_exists(cluster):
+            logging.warning(crayons.yellow(f'Cluster: {cluster.cluster.name} not found in config.'))
+            return
+        cluster_name = cluster.cluster.name
+        user = cluster.cluster.user
+        context = cluster.cluster.context
         self.local.run(f'HOME={self.home} kubectl config use-context {context}')
         self.local.run(f'HOME={self.home} kubectl config delete-cluster {cluster_name}')
         self.local.run(f'HOME={self.home} kubectl config delete-context {context}')
         self.local.run(f'HOME={self.home} kubectl config unset users.{user}')
+
+    def cluster_exists(self, cluster: 'ClusterAttributesSerializer'):
+        local_kube = os.path.join(self.home, '.kube')
+        config_file = os.path.join(local_kube, 'config')
+        cluster_name = cluster.cluster.name
+        kube_config = KubeConfig(config_filename=config_file, custom_cluster_name=cluster_name)
+        if cluster.cluster.user:
+            kube_config.custom_user_name = cluster.cluster.user
+        if cluster.cluster.context:
+            kube_config.custom_context = cluster.cluster.context
+        return kube_config.cluster_exists()
 
     def wait_for_running_system_status(self, namespace='kube-system', remote=False, poll_interval=1):
         runner = LOCAL.run if not remote else self.wrapper.execute
@@ -672,15 +754,15 @@ class KubeExecutor:
         pods_not_ready = 'initial'
         while pods_not_ready:
             print(crayons.white(f'Wait for all {namespace} pods to enter "Running" phase'))
-            pods_not_ready = runner(f'{prepend}{non_running_command}').stdout.strip()
+            pods_not_ready = runner(command=f'{prepend}{non_running_command}').stdout.strip()
             time.sleep(poll_interval)
         print(crayons.green(f'All {namespace} pods entered "Running" phase.'))
 
         all_complete = False
         while not all_complete:
             print(crayons.white(f'Wait for all {namespace} pods to reach "Desired" state'))
-            names_table = runner(f'{prepend}{running_command}', hide=True).stdout.strip()
-            current_to_desired_table = runner(f'{prepend}{running_command_current_desired}', hide=True).stdout.strip()
+            names_table = runner(command=f'{prepend}{running_command}', hide=True).stdout.strip()
+            current_to_desired_table = runner(command=f'{prepend}{running_command_current_desired}', hide=True).stdout.strip()
             clean_table = current_to_desired_table.split()[1:]
             names = names_table.split()[1:]
             complete_table = []
@@ -717,13 +799,13 @@ class KubeExecutor:
         user_creation = f'{bootstrap_path}/dashboard-adminuser.yaml'
 
         print(crayons.cyan('Deploying Dashboard'))
-        dashboard = run(f'{prepend}kubectl apply -f {KUBE_DASHBOARD_URL}')
+        dashboard = run(command=f'{prepend}kubectl apply -f {KUBE_DASHBOARD_URL}')
         if dashboard.ok:
             print(crayons.green(f'Kubernetes Dashboard deployed successfully.'))
             print(crayons.cyan('Deploying User admin-user with role-binding: cluster-admin'))
             time.sleep(30)
 
-            user_role = run(f'{prepend}kubectl apply -f {user_creation}')
+            user_role = run(command=f'{prepend}kubectl apply -f {user_creation}')
             if user_role.ok:
                 print(crayons.green(f'User admin-user created successfully.'))
             else:
@@ -737,8 +819,15 @@ class KubeExecutor:
         awk_routine = "'{print $1}'"
         command = f"{prepend}kubectl -n kubernetes-dashboard describe secret $({prepend}kubectl -n kubernetes-dashboard get secret | grep {user} | awk {awk_routine})"
         print(crayons.white(command))
-        token = run(command)
+        token = run(command=command)
         return token.stdout.strip() if token.ok else None
+
+    def apply_label_node(self, role, instance_name):
+        prepend = f'HOME={self.home}'
+        label_node = f'node-role.kubernetes.io/{role}='
+        labeled = self.local.run(f'{prepend} kubectl label nodes {instance_name} {label_node}')
+        if labeled.ok:
+            print(crayons.green(f'Added label {label_node} to {instance_name}'))
 
     def helm_install_v2(self, patch=True, helm=True, tiller=True):
         prepend = f'HOME={self.home}'
@@ -781,6 +870,7 @@ class KubeExecutor:
             self.wait_for_running_system_status()
             time.sleep(10)
             print(crayons.magenta('You might need to run "helm init --client-only to initialize repos"'))
+            self.local.run(f'{prepend} helm init --client-only')
 
     def tiller_install_v2_patch(self):
         prepend = f'HOME={self.home}'
@@ -799,7 +889,7 @@ class KubeExecutor:
     @staticmethod
     def get_bridge_common_interface(interface='vmbr0'):
         map_nodes_to_ifaces = {}
-        nodes = cluster_config_client.get_nodes()
+        nodes = pve_cluster_config_client.get_nodes()
         for node in nodes:
             interfaces = vm_client.get_cluster_node_bridge_interfaces(node=node.name)
             for iface in interfaces:
@@ -816,7 +906,7 @@ class KubeExecutor:
             local_workdir = os.path.join(WORKDIR, '.metallb')
             local_values_path = os.path.join(local_workdir, values_file)
 
-            metallb_range = cluster_config_client.loadbalancer_ip_range_to_string_or_list()
+            metallb_range = pve_cluster_config_client.loadbalancer_ip_range_to_string_or_list()
             if not metallb_range:
                 logging.error(crayons.red('Could not deploy MetalLB with given cluster values.'))
                 return
@@ -873,4 +963,4 @@ class KubeExecutor:
             logging.warning(crayons.yellow('"helm" not found on your system. Please run helm-install first'))
         return exit_code == '0'
 
-    # TODO: Storage.
+    # TODO: Storage feature.

@@ -10,13 +10,14 @@ from konverge.utils import (
     VMAttributes,
     FabricWrapper
 )
-from konverge.settings import cluster_config_client
+from konverge.settings import pve_cluster_config_client
 
 
 class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
     cls_cloud_image = ''
     full_url = ''
     filename = ''
+    disk_size_low_limit = 5
 
     def __init__(
             self,
@@ -30,7 +31,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         self.vm_attributes = vm_attributes
         self.client = client
         self.proxmox_node = proxmox_node if proxmox_node else (
-            cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
+            pve_cluster_config_client.get_proxmox_ssh_connection_objects(namefilter=self.vm_attributes.node)[0]
         )
         self.unused_driver = unused_driver
         self.preinstall = preinstall
@@ -72,10 +73,13 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         }
         return options.get(os_type)
 
+    def disk_size_check(self):
+        raise NotImplementedError
+
     def _update_description(self):
         self.vm_attributes.description = 'Generic Linux base template VM created by CloudImage.'
 
-    def generate_vmid_and_username(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         raise NotImplementedError
 
     def download_cloudinit_image(self):
@@ -112,15 +116,24 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
             print(crayons.green(f'Image {self.cloud_image} imported successfully.'))
 
     def execute(
-            self,
-            kubernetes_version='1.16.3-00',
-            docker_version='18.09.7',
-            storageos_requirements=False,
-            destroy=False
+        self,
+        kubernetes_version='1.16.3-00',
+        docker_version='18.09.7',
+        docker_ce=False,
+        storageos_requirements=False,
+        destroy=False,
+        dry_run=False
     ):
+        if dry_run:
+            self.dry_run(destroy=destroy, instance=False)
+            return self.vmid
         if destroy:
             self.stop_stage(cloudinit=True)
             self.destroy_vm()
+            return self.vmid
+
+        if self.disk_size_check():
+            logging.error(crayons.red('Aborting operation.'))
             return self.vmid
 
         print(crayons.cyan(f'Stage: Download image: {self.cloud_image}'))
@@ -149,12 +162,13 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         self.set_vga_display()
 
         if self.preinstall:
-            self.start_stage(cloudinit=True)
+            self.start_stage(cloudinit=True, wait_minutes=4)
             print(crayons.cyan(f'Stage: Install kubernetes pre-requisites from file {self.filename}'))
             self.install_kube(
                 filename=self.filename,
                 kubernetes_version=kubernetes_version,
                 docker_version=docker_version,
+                docker_ce=docker_ce,
                 storageos_requirements=storageos_requirements
             )
             time.sleep(5)
@@ -170,28 +184,46 @@ class UbuntuCloudInitTemplate(CloudinitTemplate):
     cls_cloud_image = 'bionic-server-cloudimg-amd64.img'
     full_url = f'https://cloud-images.ubuntu.com/bionic/current/{cls_cloud_image}'
     filename = 'req_ubuntu.sh'
+    disk_size_low_limit = 5
 
     def _update_description(self):
-        self.vm_attributes.description = f'Ubuntu 18.04.3 base template VM created by CloudImage.'
+        base = f'Ubuntu 18.04.3 base template VM created by CloudImage.'
+        kube = f'Ubuntu 18.04.3 Kubernetes template VM created by CloudImage.'
+        self.vm_attributes.description = kube if self.preinstall else base
 
-    def generate_vmid_and_username(self, id_prefix, preinstall=True):
+    def disk_size_check(self):
+        predicate = self.vm_attributes.disk_size < self.disk_size_low_limit
+        if predicate:
+            logging.warning(
+                crayons.yellow(
+                    f'Template {self.vm_attributes.name} disk size: {self.vm_attributes.disk_size}G is lower '
+                    f'than Ubuntu OS Type limit of {self.disk_size_low_limit}G'
+                )
+            )
+        return predicate
+
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         template_vmid = int(f'{id_prefix}100') if self.preinstall else int(f'{id_prefix}000')
         username = 'ubuntu'
         return template_vmid, username
 
     def execute(
-            self,
-            kubernetes_version='1.16.3-00',
-            docker_version='18.09.7',
-            storageos_requirements=False,
-            destroy=False
+        self,
+        kubernetes_version='1.16.3-00',
+        docker_version='18.09.7',
+        docker_ce=False,
+        storageos_requirements=False,
+        destroy=False,
+        dry_run=False
     ):
-        suffix = '-0ubuntu1~18.04.4'
+        suffix = '-0ubuntu1~18.04.4' if 'ubuntu' not in docker_version else ''
         super().execute(
             kubernetes_version=kubernetes_version,
             docker_version=f'{docker_version}{suffix}',
+            docker_ce=docker_ce,
             storageos_requirements=storageos_requirements,
-            destroy=destroy
+            destroy=destroy,
+            dry_run=dry_run
         )
 
     def install_storageos_requirements(self):
@@ -213,27 +245,45 @@ class CentosCloudInitTemplate(CloudinitTemplate):
     cls_cloud_image = 'CentOS-7-x86_64-GenericCloud.qcow2'
     full_url = f'https://cloud.centos.org/centos/7/images/{cls_cloud_image}'
     filename = 'req_centos.sh'
+    disk_size_low_limit = 10
 
     def _update_description(self):
-        self.vm_attributes.description = f'CentOS 7 base template VM created by CloudImage.'
+        base = f'CentOS 7 base template VM created by CloudImage.'
+        kube = f'CentOS 7 Kubernetes template VM created by CloudImage.'
+        self.vm_attributes.description = kube if self.preinstall else base
 
-    def generate_vmid_and_username(self, id_prefix):
+    def disk_size_check(self):
+        predicate = self.vm_attributes.disk_size < self.disk_size_low_limit
+        if predicate:
+            logging.warning(
+                crayons.yellow(
+                    f'Template {self.vm_attributes.name} disk size: {self.vm_attributes.disk_size}G is lower '
+                    f'than Centos OS Type limit of {self.disk_size_low_limit}G'
+                )
+            )
+        return predicate
+
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         template_vmid = int(f'{id_prefix}101') if self.preinstall else int(f'{id_prefix}001')
         username = 'centos'
         return template_vmid, username
 
     def execute(
-            self,
-            kubernetes_version='1.16.3-00',
-            docker_version='18.09.7',
-            storageos_requirements=False,
-            destroy=False
+        self,
+        kubernetes_version='1.16.3-00',
+        docker_version='18.09.7',
+        docker_ce=False,
+        storageos_requirements=False,
+        destroy=False,
+        dry_run=False
     ):
         super().execute(
             kubernetes_version=kubernetes_version,
             docker_version=docker_version,
+            docker_ce=docker_ce,
             storageos_requirements=storageos_requirements,
-            destroy=destroy
+            destroy=destroy,
+            dry_run=dry_run
         )
 
     def install_storageos_requirements(self):

@@ -4,13 +4,14 @@ from functools import singledispatch
 
 import crayons
 import yaml
-from jsonschema import ValidationError, validate
+from jsonschema import ValidationError, validate, FormatChecker
 
-from konverge.schema import PROXMOX_CLUSTER_SCHEMA
+from konverge.schema import PROXMOX_CLUSTER_SCHEMA, KUBE_CLUSTER_SCHEMA
 
 
 class GenericConfigFile:
     schema = None
+    filenames = tuple()
 
     def __init__(self, filename: str = None):
         self.filename = filename
@@ -21,13 +22,16 @@ class GenericConfigFile:
         return os.path.exists(self.filename)
 
     def read_yaml_file(self):
-        if not self.filename:
-            logging.error(crayons.red(f'There is no filename declared'))
-            return None
-        if not self.exists:
-            logging.error(crayons.red(f'File {self.filename} does not exist'))
-            return None
+        if not self.filename or not self.exists:
+            self.filename = self._get_default_filename()
         return self._read_yaml_file_from_input()
+
+    def _get_default_filename(self):
+        for file in self.filenames:
+            if os.path.exists(file):
+                return file
+        logging.error(crayons.red(f'There is no file named: {self.filenames} in the current folder.'))
+        return None
 
     def _read_yaml_file_from_input(self):
         if not self.filename:
@@ -46,37 +50,13 @@ class GenericConfigFile:
         return config
 
     def validate(self):
-        raise NotImplementedError
-
-    def serialize(self):
-        raise NotImplementedError
-
-
-class ProxmoxClusterConfigFile(GenericConfigFile):
-    schema = PROXMOX_CLUSTER_SCHEMA
-
-    def read_yaml_file(self):
-        if not self.filename or not self.exists:
-            self.filename = self._get_default_filename()
-        return self._read_yaml_file_from_input()
-
-    @staticmethod
-    def _get_default_filename():
-        filenames = '.cluster.yaml', '.cluster.yml'
-        for file in filenames:
-            if os.path.exists(file):
-                return file
-        logging.error(crayons.red(f'There is no file named: {filenames[0]} or {filenames[1]} in the current folder.'))
-        return None
-
-    def validate(self):
         if not self.schema:
             return self.config
         if not self.config:
             logging.error(crayons.red(f'No serialized object generated from {self.filename}'))
             return None
         try:
-            validate(instance=self.config, schema=self.schema)
+            validate(instance=self.config, schema=self.schema, format_checker=FormatChecker())
         except ValidationError as validation_failed:
             logging.error(crayons.red(f'{self.filename} invalid: {validation_failed}'))
             return None
@@ -88,6 +68,22 @@ class ProxmoxClusterConfigFile(GenericConfigFile):
             return None
         validated = self.validate()
         return ConfigSerializer(validated)
+
+
+class ProxmoxClusterConfigFile(GenericConfigFile):
+    schema = PROXMOX_CLUSTER_SCHEMA
+    filenames = '.pve.yaml', '.pve.yml', '.proxmox.yaml', '.proxmox.yml'
+
+
+class KubeClusterConfigFile(GenericConfigFile):
+    schema = KUBE_CLUSTER_SCHEMA
+    filenames = '.cluster.yaml', '.cluster.yml'
+
+    def serialize(self):
+        if not self.config:
+            logging.error(crayons.red(f'No serialized object generated from {self.filename}'))
+            return None
+        return self.validate()
 
 
 class ConfigSerializer:

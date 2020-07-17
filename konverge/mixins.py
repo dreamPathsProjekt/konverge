@@ -1,5 +1,4 @@
 import os
-import time
 import crayons
 import logging
 
@@ -13,6 +12,7 @@ from konverge.utils import (
     add_ssh_config_entry,
     remove_ssh_config_entry,
     clear_server_entry,
+    sleep_intervals,
     LOCAL
 )
 from konverge import settings
@@ -52,12 +52,12 @@ class CommonVMMixin:
             return False
         return list(filter(lambda vm: int(self.vmid) == int(vm.get('vmid')), vms))[0].get('status') == 'running'
 
-    def generate_vmid_and_username(self, id_prefix):
+    def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         raise NotImplementedError
 
-    def get_vmid_and_username(self):
+    def get_vmid_and_username(self, external: set = None):
         id_prefix = get_id_prefix(proxmox_node_scale=settings.node_scale, node=self.vm_attributes.node)
-        return self.generate_vmid_and_username(id_prefix=id_prefix)
+        return self.generate_vmid_and_username(id_prefix=id_prefix, external=external)
 
     def get_vm_config(self):
         return self.client.get_vm_config(node=self.vm_attributes.node, vmid=self.vmid)
@@ -80,10 +80,10 @@ class CommonVMMixin:
                 return storage_result.get('storage')
 
     def generate_allowed_ip(self):
-        network = settings.cluster_config_client.get_network_base()
-        loadbalancer = settings.cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False)
-        start, end = settings.cluster_config_client.get_allowed_range()
-        allocated = settings.cluster_config_client.get_allocated_ips_from_config(namefilter=self.vm_attributes.node)
+        network = settings.pve_cluster_config_client.get_network_base()
+        loadbalancer = settings.pve_cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False)
+        start, end = settings.pve_cluster_config_client.get_allowed_range()
+        allocated = settings.pve_cluster_config_client.get_allocated_ips_from_config(namefilter=self.vm_attributes.node)
         # Arp-scan
         allocated.update(self.get_allocated_ips_per_node_interface())
         # Cloudinit allocated, includes stopped vms.
@@ -267,14 +267,14 @@ class CommonVMMixin:
 
     def inject_cloudinit_values(self, invalidate=False):
         if invalidate:
-            return self.client.inject_vm_cloudinit(
+            self.client.inject_vm_cloudinit(
                 node=self.vm_attributes.node,
                 vmid=self.vmid,
                 ssh_key_content=None,
                 vm_ip=None,
                 gateway=None
             )
-
+            return
         if not self.vm_attributes.public_key_exists:
             logging.error(crayons.red(f'Public key: {self.vm_attributes.public_ssh_key} does not exist. Abort'))
             return
@@ -285,10 +285,10 @@ class CommonVMMixin:
                 )
             )
         self.create_allowed_ip_if_not_exists()
-        gateway = self.vm_attributes.gateway if self.vm_attributes.gateway else settings.cluster_config_client.gateway
+        gateway = self.vm_attributes.gateway if self.vm_attributes.gateway else settings.pve_cluster_config_client.gateway
 
         print(crayons.blue(f'Inject cloudinit values ipconfig: ip={self.allowed_ip}, gateway={gateway}, sshkeys: {self.vm_attributes.public_ssh_key}'))
-        return self.client.inject_vm_cloudinit(
+        self.client.inject_vm_cloudinit(
             node=self.vm_attributes.node,
             vmid=self.vmid,
             ssh_key_content=self.vm_attributes.read_public_key(),
@@ -309,6 +309,7 @@ class CommonVMMixin:
             identity=self.vm_attributes.private_pem_ssh_key,
             ip=self.allowed_ip
         )
+        clear_server_entry(self.allowed_ip)
 
     def remove_ssh_config_entry(self):
         ip_address, netmask, gateway = self.client.get_ip_config_from_vm_cloudinit(
@@ -327,6 +328,7 @@ class CommonVMMixin:
             filename='req_ubuntu.sh',
             kubernetes_version='1.16.3-00',
             docker_version='18.09.7',
+            docker_ce=False,
             storageos_requirements=False
     ):
         local = LOCAL
@@ -342,6 +344,7 @@ class CommonVMMixin:
         local_dashboard_path = os.path.join(settings.BASE_PATH, f'bootstrap/{dashboard_file}')
         local_daemon_path = os.path.join(settings.BASE_PATH, f'bootstrap/{daemon_file}')
         remote_path = f'/opt/kube/bootstrap'
+        docker_flavour = 'DOCKER_CE=1' if docker_ce else ''
 
         print(crayons.white(f'Current workdir: {settings.BASE_PATH}'))
 
@@ -359,13 +362,13 @@ class CommonVMMixin:
         print(crayons.cyan(f'Kubernetes Version: {kubernetes_version}. Docker Version: {docker_version}'))
         template_host.execute(f'chmod +x {remote_path}/{file}')
         installed = template_host.execute(
-            f'DAEMON_JSON_LOCATION={remote_path} KUBE_VERSION={kubernetes_version} DOCKER_VERSION={docker_version} {remote_path}/{file}',
+            f'DAEMON_JSON_LOCATION={remote_path} KUBE_VERSION={kubernetes_version} DOCKER_VERSION={docker_version} {docker_flavour} {remote_path}/{file}',
             warn=True
         )
         if installed.ok:
             print(crayons.green(f'Installed pre-requisites on {host}'))
         else:
-            logging.error(crayons.red(f'Pre-requisistes on {host} failed to install.'))
+            logging.error(crayons.red(f'Pre-requisites on {host} failed to install.'))
             return
 
         if storageos_requirements:
@@ -373,6 +376,36 @@ class CommonVMMixin:
 
     def install_storageos_requirements(self):
         pass
+
+    def dry_run(self, destroy=False, instance=True):
+        color = crayons.red if destroy else crayons.green
+        prefix = 'Destroy' if destroy else 'Create'
+        title = f'{prefix} VM {self.vm_attributes.name}'
+        horizontal_sep = '=' * len(title)
+
+        print()
+        print(color(title))
+        print(color(horizontal_sep))
+        print()
+        print(color(f'VMID: ') + crayons.yellow(self.vmid))
+        if instance:
+            print(color('Template'))
+            print(color(f'  VMID: ') + crayons.yellow(self.template.vmid))
+            print(color(f'  Name: {self.template.vm_attributes.name}'))
+            print(color('Instance'))
+        print(color(f'  Node: {self.vm_attributes.node}'))
+        print(color(f'  Pool: {self.vm_attributes.pool}'))
+        print(color(f'  Description: {self.vm_attributes.description}'))
+        print(color(f'  OS: {self.vm_attributes.os_type}'))
+        print(color(f'  CPUs: {self.vm_attributes.cpus}'))
+        print(color(f'  Memory: {self.vm_attributes.memory}'))
+        print(color(f'  DiskSize GB: {self.vm_attributes.disk_size}'))
+        print(color(f'  Scsi driver: {self.vm_attributes.scsi}'))
+        print(color(f'  Storage: {self.vm_attributes.storage_type}'))
+        print(color(f'  SSH keyname: {self.vm_attributes.ssh_keyname}'))
+        print(color(f'  Gateway: {self.vm_attributes.gateway}'))
+        print()
+        print()
 
 
 class ExecuteStagesMixin:
@@ -383,18 +416,23 @@ class ExecuteStagesMixin:
     inject_cloudinit_values: callable
     remove_ssh_config_entry: callable
 
-    def start_stage(self, cloudinit=False):
+    def start_stage(self, cloudinit=False, wait_minutes=4):
+        wait_period = wait_minutes * 60
+        sleep_interval = 5
+
         print(crayons.cyan(f'Stage: Start VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         if cloudinit:
             self.inject_cloudinit_values()
+
         started = self.start_vm()
         if started:
             print(crayons.green(f'Start VM {self.vm_attributes.name} {self.vmid}: Success'))
         else:
             logging.error(crayons.red(f'VM {self.vm_attributes.name} {self.vmid} failed to start'))
             return
-        print(crayons.cyan(f'Stage: Waiting 2 min. for VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} to initialize.'))
-        time.sleep(120)
+
+        print(crayons.cyan(f'Stage: Waiting {wait_period / 60} minutes, for VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} to initialize.'))
+        sleep_intervals(wait_period=wait_period, sleep_interval=sleep_interval)
         print(crayons.green(f'VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node} initialized.'))
 
     def stop_stage(self, cloudinit=False):

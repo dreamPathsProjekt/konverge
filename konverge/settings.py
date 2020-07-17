@@ -6,11 +6,13 @@ import logging
 import crayons
 
 from konverge.pve import ProxmoxAPIClient
-from konverge.pvecluster import ProxmoxClusterConfigFile, ClusterConfig
+from konverge.pvecluster import ProxmoxClusterConfigFile, PVEClusterConfig
+from konverge.files import KubeClusterConfigFile
 
 
 BASE_PATH = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 WORKDIR = os.path.abspath(subprocess.check_output('pwd', universal_newlines=True).strip())
+HOME_DIR = os.path.expanduser('~')
 
 CNI = {
     'flannel': 'https://raw.githubusercontent.com/coreos/flannel/2140ac876ef134e0ed5af15c65e414cf26827915/Documentation/kube-flannel.yml',
@@ -21,13 +23,31 @@ CNI = {
 
 KUBE_DASHBOARD_URL = 'https://raw.githubusercontent.com/kubernetes/dashboard/v2.0.0-beta4/aio/deploy/recommended.yaml'
 
+VMID_PLACEHOLDER = 9999
+allocated_vmids = set()
+
+def cluster_config_factory(filename=None, config_type='pve'):
+    cluster_type = {
+        'pve': ProxmoxClusterConfigFile,
+        'kube': KubeClusterConfigFile
+    }
+    factory = cluster_type.get(config_type)
+    if filename and os.path.exists(os.path.join(WORKDIR, filename)):
+        return factory(filename)
+    return factory()
+
+
+PVE_FILENAME = os.getenv('PVE_FILENAME')
+KUBE_FILENAME = os.getenv('KUBE_FILENAME')
 
 try:
-    cluster_config = ProxmoxClusterConfigFile()
-    cluster_config_client = ClusterConfig(cluster_config)
-    node_scale = len(cluster_config_client.get_nodes())
+    pve_cluster_config = cluster_config_factory(filename=PVE_FILENAME, config_type='pve')
+    pve_cluster_config_client = PVEClusterConfig(pve_cluster_config)
+    kube_config = cluster_config_factory(filename=KUBE_FILENAME, config_type='kube')
+    node_scale = len(pve_cluster_config_client.get_nodes())
 except Exception as import_error:
     logging.error(crayons.red(import_error))
+
 
 VMAPIClientFactory = ProxmoxAPIClient.api_client_factory(instance_type='vm')
 vm_client = VMAPIClientFactory(

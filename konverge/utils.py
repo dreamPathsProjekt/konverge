@@ -1,13 +1,17 @@
 import logging
 import os
 import math
+import time
 from enum import Enum
+from functools import singledispatch
+from typing import Union
 
 import crayons
-
 from fabric2 import Connection, Config
 from fabric2.util import get_local_user
 from invoke import Context
+
+from konverge.files import ConfigSerializer
 
 
 LOCAL = Context(Config())
@@ -25,8 +29,36 @@ KUBE_VERSION_MAP_DOCKER_IO = {
 }
 
 
+def colorize_yes_or_no(msg, yes=True):
+    return crayons.green(msg) if yes else crayons.red(msg)
+
+
+def semver_has_patch_suffix(version='1.16.9'):
+    versions = version.split('.')
+    has_patch = len(versions) == 3
+    if has_patch:
+        major, minor, patch = versions
+    elif len(versions) == 2:
+        major, minor = versions
+        patch = None
+    elif len(versions) == 1:
+        major = versions[0]
+        minor, patch = None, None
+    else:
+        return has_patch, None, None, None
+    return has_patch, major, minor, patch
+
+
 def get_kube_versions(os_type='ubuntu', kube_major='1.16', docker_ce=False):
     from konverge.settings import BASE_PATH
+
+    has_patch, major, minor, patch = semver_has_patch_suffix(version=kube_major)
+    if has_patch:
+        kube_major = f'{major}.{minor}'
+    if not minor:
+        major = major if major else 1
+        logging.warning(crayons.yellow(f'Invalid version: {kube_major}. Defaults to {major}.16'))
+        kube_major = f'{major}.16'
 
     bootstrap = os.path.join(BASE_PATH, 'bootstrap')
     if os_type == 'ubuntu':
@@ -41,7 +73,78 @@ def get_kube_versions(os_type='ubuntu', kube_major='1.16', docker_ce=False):
     ).stdout
 
 
-class Storage(Enum):
+def infer_full_versions_from_major(kubernetes='1.16', docker_ce=False):
+    has_patch, major, minor, patch = semver_has_patch_suffix(version=kubernetes)
+    versions = get_kube_versions(kube_major=kubernetes, docker_ce=docker_ce)
+    lines = versions.splitlines()
+    start = 0
+    end = len(lines)
+    docker_ce_start = 0
+    docker_ce_end = len(lines)
+    docker_io_start = 0
+    docker_io_end = len(lines)
+    for line in lines:
+        if '=== kubelet ===' in line:
+            start = lines.index(line)
+        if '=== kubectl ===' in line:
+            end = lines.index(line)
+        if '=== docker.io ===' in line:
+            docker_io_start = lines.index(line)
+        if '=== docker-ce ===' in line:
+            docker_io_end = lines.index(line)
+        if '=== docker-ce ===' in line and docker_ce:
+            docker_ce_start = lines.index(line)
+        if docker_ce:
+            docker_ce_end = -1
+    version_list = [entry for entry in lines[start + 1:end] if entry]
+    docker_ce_list = [entry for entry in lines[docker_ce_start + 1:docker_ce_end] if entry] if docker_ce else []
+    docker_io_list = [entry for entry in lines[docker_io_start + 1:docker_io_end] if entry]
+    minor_versions = []
+    docker_ce_versions = []
+    docker_io_versions = []
+    for entry in version_list:
+        title, version, url = entry.split('|')
+        minor_versions.append(version.strip())
+    if docker_ce:
+        for entry in docker_ce_list:
+            title, version, url = entry.split('|')
+            docker_ce_versions.append(version.strip())
+    for entry in docker_io_list:
+        title, version, url = entry.split('|')
+        docker_io_versions.append(version.strip())
+    latest = minor_versions[0] if not has_patch else kubernetes
+    if docker_ce:
+        return latest, docker_ce_versions[0]
+    return latest, docker_io_versions[0]
+
+
+@singledispatch
+def get_attributes_exist(attributes, resource: ConfigSerializer):
+    return [attribute for attribute in attributes if hasattr(resource, attribute)]
+
+
+@get_attributes_exist.register
+def _(attributes: str, resource: ConfigSerializer):
+    return [attributes] if hasattr(resource, attributes) else []
+
+
+@get_attributes_exist.register
+def _(attributes: Union[tuple, list], resource: ConfigSerializer):
+    return [attribute for attribute in attributes if hasattr(resource, attribute)]
+
+
+class EnumCommon(Enum):
+    @classmethod
+    def has_value(cls, value):
+        return value in cls._value2member_map_
+
+    @classmethod
+    def return_value(cls, value):
+        if cls.has_value(value):
+            return getattr(cls, value)
+
+
+class Storage(EnumCommon):
     cephfs = 'cephfs'
     cifs = 'cifs'
     dir = 'dir'
@@ -58,15 +161,6 @@ class Storage(Enum):
     zfs = 'zfs'
     zfspool = 'zfspool'
 
-    @classmethod
-    def has_value(cls, value):
-        return value in cls._value2member_map_
-
-    @classmethod
-    def return_value(cls, value):
-        if cls.has_value(value):
-            return getattr(cls, value)
-
 
 class BootMedia(Enum):
     floppy = 'a'
@@ -79,6 +173,38 @@ class BackupMode(Enum):
     stop = 'stop'
     snapshot = 'snapshot'
     suspend = 'suspend'
+
+
+class KubeStorage(EnumCommon):
+    rook = 'rook'
+    glusterfs = 'glusterfs'
+    nfs = 'nfs'
+
+
+class HelmVersion(EnumCommon):
+    v2 = 'v2'
+    v3 = 'v3'
+
+
+class VMCategory(EnumCommon):
+    template = 'template'
+    masters = 'masters'
+    workers = 'workers'
+
+
+class KubeClusterAction(EnumCommon):
+    create = 'create'
+    update = 'update'
+    delete = 'delete'
+    recreate = 'recreate'
+    nothing = 'nothing'
+
+
+class KubeClusterStages(EnumCommon):
+    create = 'create'
+    bootstrap = 'bootstrap'
+    join = 'join'
+    post_installs = 'post_installs'
 
 
 class VMAttributes:
@@ -113,6 +239,27 @@ class VMAttributes:
         self.gateway = gateway
 
     @property
+    def ssh_keyname(self):
+        return self._ssh_keyname
+
+    @ssh_keyname.setter
+    def ssh_keyname(self, ssh_keyname):
+        from konverge import settings
+
+        if ssh_keyname is None:
+            self._ssh_keyname = ssh_keyname
+            return
+
+        if '~' in ssh_keyname:
+            parts = ssh_keyname.split(os.path.sep)
+            parts.remove('~')
+            self._ssh_keyname = os.path.join(settings.HOME_DIR, *parts)
+        elif os.sep not in ssh_keyname:
+            self._set_ssh_keyname_from_default_location(settings=settings, ssh_keyname=ssh_keyname)
+        else:
+            self._ssh_keyname = ssh_keyname
+
+    @property
     def description_os_type(self):
         if self.description and 'Ubuntu' in  self.description:
             return 'ubuntu'
@@ -143,6 +290,15 @@ class VMAttributes:
     @property
     def private_pem_ssh_key_exists(self):
         return os.path.exists(self.private_pem_ssh_key)
+
+    @property
+    def private_key_or_pem_ssh_key_exists(self):
+        return self.private_key_exists or self.private_pem_ssh_key_exists
+
+    def _set_ssh_keyname_from_default_location(self, settings, ssh_keyname):
+        self._ssh_keyname = os.path.join(settings.WORKDIR, ssh_keyname)
+        if not self.public_key_exists or not self.private_key_or_pem_ssh_key_exists:
+            self._ssh_keyname =  os.path.join(settings.HOME_DIR, '.ssh', ssh_keyname)
 
     def read_public_key(self):
         if not self.public_key_exists:
@@ -306,6 +462,15 @@ def clear_server_entry(ip):
         logging.warning(crayons.white(warning))
 
 
+def sleep_intervals(wait_period=120, sleep_interval=5):
+    if wait_period == 0:
+        logging.warning(crayons.yellow('Wait period: No wait'))
+        return
+    for counter in range(0, wait_period, sleep_interval):
+        print(crayons.white('Time elapsed: ') + crayons.yellow(counter) + crayons.white(' seconds.'))
+        time.sleep(sleep_interval)
+
+
 def human_readable_disk_size(size):
    if size == 0:
        return '0B'
@@ -314,3 +479,13 @@ def human_readable_disk_size(size):
    power = math.pow(1024, index)
    result = round(size/power, 2)
    return int(result), size_name[index]
+
+
+def set_pve_config_filename(filename: str):
+    if filename:
+        os.environ['PVE_FILENAME'] = filename
+
+
+def set_kube_config_filename(filename: str):
+    if filename:
+        os.environ['KUBE_FILENAME'] = filename

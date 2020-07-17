@@ -1,4 +1,5 @@
 import logging
+import time
 import urllib.parse
 
 import crayons
@@ -32,10 +33,14 @@ class ProxmoxAPIClient:
         }
         return types.get(instance_type)
 
-    def get_resource_pools(self, name=None):
-        if name:
-            return [pool.get('poolid') for pool in self.client.pools.get() if pool.get('poolid') == name][0]
+    def get_resource_pools(self, poolid=None):
+        if poolid:
+            return [pool.get('poolid') for pool in self.client.pools.get() if pool.get('poolid') == poolid][0]
         return [pool.get('poolid') for pool in self.client.pools.get()]
+
+    def get_pool_members(self, poolid):
+        if self.get_resource_pools(poolid=poolid):
+            return self.client.pools.get(poolid).get('members')
 
     def get_or_create_pool(self, name):
         if not name or (name in self.get_resource_pools()):
@@ -196,7 +201,6 @@ class VMAPIClient(ProxmoxAPIClient):
             storage=self.get_cluster_storage(storage_type=vm_attributes.storage_type)[0].get('name'),
             net0=f'model=virtio,bridge=vmbr0,firewall=1'
         )
-
     def start_vm(self, node, vmid):
         node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).status.start.post()
@@ -217,7 +221,7 @@ class VMAPIClient(ProxmoxAPIClient):
         node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).template.post()
 
-    def clone_vm_from_template(self, node, source_vmid, target_vmid, name='', description=''):
+    def clone_vm_from_template(self, node, source_vmid, target_vmid, name='', description='', pool=''):
         """
         Parameter full creates a full disk clone of VM. For templates default is False: creates a linked clone.
         """
@@ -226,7 +230,8 @@ class VMAPIClient(ProxmoxAPIClient):
         return qemu_instance.clone.create(
             newid=target_vmid,
             name=name,
-            description=description
+            description=description,
+            pool=pool
         )
 
     def backup_vm(
@@ -328,6 +333,25 @@ class VMAPIClient(ProxmoxAPIClient):
             bootdisk=driver
         )
 
+    def disable_backups(self, node, vmid, scsi=False, drive_slot=0):
+        config = self.get_vm_config(node=node, vmid=vmid)
+        drive = f'scsi{drive_slot}' if scsi else f'virtio{drive_slot}'
+        volume_details = config.get(drive)
+        if not volume_details:
+            return None
+        volume_details = f'{volume_details},backup=0'
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            **{drive: volume_details}
+        ) if scsi else self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            **{drive: volume_details}
+        )
+
     def resize_disk(self, node, vmid, driver='virtio0', disk_size=5):
         node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).resize.put(
@@ -337,20 +361,22 @@ class VMAPIClient(ProxmoxAPIClient):
 
     def inject_vm_cloudinit(self, node, vmid, ssh_key_content, vm_ip, gateway, netmask='24'):
         if ssh_key_content and vm_ip and gateway:
-            return self.update_vm_config(
+            self.update_vm_config(
                 node=node,
                 vmid=vmid,
                 sshkeys=urllib.parse.quote(ssh_key_content, safe=''),
                 ipconfig0=f'ip={vm_ip}/{netmask},gw={gateway}'
             )
-        elif ssh_key_content and (not vm_ip or not gateway):
+            return
+        if ssh_key_content and (not vm_ip or not gateway):
             self.update_vm_config(
                 node=node,
                 vmid=vmid,
                 sshkeys=urllib.parse.quote(ssh_key_content, safe=''),
                 delete='ipconfig0'
             )
-        return self.update_vm_config(
+            return
+        self.update_vm_config(
             node=node,
             vmid=vmid,
             delete='sshkeys,ipconfig0'
@@ -371,7 +397,14 @@ class VMAPIClient(ProxmoxAPIClient):
 
     def get_all_vm_allocated_ips_all_nodes(self):
         allocated = set()
-        for node_instance in self.get_cluster_nodes():
+        try:
+            nodes = self.get_cluster_nodes()
+        except Exception as disconnected:
+            logging.warning(crayons.yellow(disconnected))
+            time.sleep(5)
+            nodes = self.get_cluster_nodes()
+
+        for node_instance in nodes:
             node = node_instance.get('name')
             vms = self.get_cluster_vms(node)
             if not vms:
