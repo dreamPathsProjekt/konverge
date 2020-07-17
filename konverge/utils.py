@@ -33,8 +33,32 @@ def colorize_yes_or_no(msg, yes=True):
     return crayons.green(msg) if yes else crayons.red(msg)
 
 
+def semver_has_patch_suffix(version='1.16.9'):
+    versions = version.split('.')
+    has_patch = len(versions) == 3
+    if has_patch:
+        major, minor, patch = versions
+    elif len(versions) == 2:
+        major, minor = versions
+        patch = None
+    elif len(versions) == 1:
+        major = versions[0]
+        minor, patch = None, None
+    else:
+        return has_patch, None, None, None
+    return has_patch, major, minor, patch
+
+
 def get_kube_versions(os_type='ubuntu', kube_major='1.16', docker_ce=False):
     from konverge.settings import BASE_PATH
+
+    has_patch, major, minor, patch = semver_has_patch_suffix(version=kube_major)
+    if has_patch:
+        kube_major = f'{major}.{minor}'
+    if not minor:
+        major = major if major else 1
+        logging.warning(crayons.yellow(f'Invalid version: {kube_major}. Defaults to {major}.16'))
+        kube_major = f'{major}.16'
 
     bootstrap = os.path.join(BASE_PATH, 'bootstrap')
     if os_type == 'ubuntu':
@@ -50,6 +74,7 @@ def get_kube_versions(os_type='ubuntu', kube_major='1.16', docker_ce=False):
 
 
 def infer_full_versions_from_major(kubernetes='1.16', docker_ce=False):
+    has_patch, major, minor, patch = semver_has_patch_suffix(version=kubernetes)
     versions = get_kube_versions(kube_major=kubernetes, docker_ce=docker_ce)
     lines = versions.splitlines()
     start = 0
@@ -87,7 +112,7 @@ def infer_full_versions_from_major(kubernetes='1.16', docker_ce=False):
     for entry in docker_io_list:
         title, version, url = entry.split('|')
         docker_io_versions.append(version.strip())
-    latest = minor_versions[0]
+    latest = minor_versions[0] if not has_patch else kubernetes
     if docker_ce:
         return latest, docker_ce_versions[0]
     return latest, docker_io_versions[0]
