@@ -419,11 +419,11 @@ class KubeCluster:
             stage: typing.Union[KubeClusterStages, None] = None,
             dry_run=False
     ):
-        # if self.exists:
-        #     serializers.logging.warning(
-        #         serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
-        #     )
-        #     return
+        if self.exists:
+            serializers.logging.warning(
+                serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
+            )
+            return
 
         stagemsg = f' Stage: {stage.value}' if stage else ''
         dry = ' (dry-run)' if dry_run else ''
