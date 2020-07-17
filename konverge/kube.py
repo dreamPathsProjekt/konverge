@@ -322,6 +322,13 @@ class KubeProvisioner:
             print(crayons.green(f'Container Networking {self.control_plane.networking} deployed successfully.'))
             return True
 
+    def get_join_token_v2(self, control_plane_node=False):
+        join_command = self.instance.self_node.execute("kubeadm token create --print-join-command | tail -n 1").stdout.strip('\n')
+        if control_plane_node:
+            certificate_key = self.instance.self_node_sudo.execute("sudo kubeadm init phase upload-certs --upload-certs  | tail -n 1").stdout.strip('\n')
+            return f'{join_command} --v 5 --control-plane --certificate-key {certificate_key}'
+        return join_command
+
     def get_join_token(self, control_plane_node=False, certificate_key=''):
         join_token = ''
         if self.control_plane.ha_masters:
@@ -355,10 +362,14 @@ class KubeProvisioner:
             control_plane=self.control_plane,
             remote_path=self.remote_path
         )
-        join_command = leader_provisioner.get_join_token(control_plane_node, certificate_key)
+        if not certificate_key or not leader.allowed_ip:
+            join_command = leader_provisioner.get_join_token_v2(control_plane_node)
+        else:
+            join_command = leader_provisioner.get_join_token(control_plane_node, certificate_key)
         if not join_command:
             logging.error(crayons.red('Node Join command not generated. Abort.'))
             return
+        print(crayons.white(f'Join command: {join_command}'))
         print(crayons.cyan(f'Joining Node: {self.instance.vm_attributes.name} to the cluster'))
         join = self.instance.self_node_sudo.execute(join_command)
         if join.failed:

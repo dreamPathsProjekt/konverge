@@ -1,4 +1,5 @@
 import logging
+import time
 import urllib.parse
 
 import crayons
@@ -400,6 +401,7 @@ class VMAPIClient(ProxmoxAPIClient):
             nodes = self.get_cluster_nodes()
         except Exception as disconnected:
             logging.warning(crayons.yellow(disconnected))
+            time.sleep(5)
             nodes = self.get_cluster_nodes()
 
         for node_instance in nodes:
