@@ -94,7 +94,7 @@ class KubeCluster:
             }
         }
 
-    def _generate_executor(self, dry_run=False):
+    def _generate_executor(self, destroy=False, dry_run=False):
         """
         Lazy load KubeExecutor with remote feature, until leader is online.
         """
@@ -123,7 +123,7 @@ class KubeCluster:
             return serializers.KubeExecutor()
         return serializers.KubeExecutor(
             leader.self_node
-        )
+        ) if not destroy else serializers.KubeExecutor()
 
     def create(self, disable_backups=False, dry_run=False):
         for category, runners in self.runners.items():
@@ -257,6 +257,7 @@ class KubeCluster:
             for worker in group:
                 print(serializers.crayons.cyan(f'Rollback worker node: {worker.instance.vm_attributes.name}'))
                 worker.rollback_node() if not dry_run else None
+                self.executor.remove_cluster_node(instance=worker.instance) if not dry_run else None
         wait = 0 if dry_run else 60
         self.wait(wait_period=wait, reason='Wait for Rollback to complete')
         print(serializers.crayons.green('Successfully removed worker nodes (dry-run)')) if dry_run else None
@@ -385,7 +386,7 @@ class KubeCluster:
             print(serializers.crayons.green(f'~/.kube/config updated successfully (dry-run)'))
             print()
             return
-        self.executor.unset_local_cluster_config(self.cluster.cluster)
+        self.executor.unset_local_cluster_config(self.cluster)
 
     def label_workers(self, dry_run=False):
         if dry_run:
@@ -419,7 +420,7 @@ class KubeCluster:
             stage: typing.Union[KubeClusterStages, None] = None,
             dry_run=False
     ):
-        if self.exists:
+        if self.exists and not destroy:
             serializers.logging.warning(
                 serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
             )
@@ -441,12 +442,12 @@ class KubeCluster:
             print()
             if not stage:
                 print(stage_join)
+                self.executor = self._generate_executor(destroy=True, dry_run=dry_run)
                 self.rollback_workers(dry_run=dry_run)
                 print(stage_bootstrap)
                 self.rollback_control_plane(dry_run=dry_run)
                 print(stage_create)
                 self.destroy(template=destroy_template, dry_run=dry_run)
-                self.executor = self._generate_executor(dry_run=dry_run)
                 print(stage_post_installs)
                 self.post_destroy(dry_run=dry_run)
                 print(serializers.crayons.green(msg))
@@ -455,6 +456,7 @@ class KubeCluster:
             print()
             if stage.value == KubeClusterStages.join.value:
                 print(stage_output)
+                self.executor = self._generate_executor(destroy=True, dry_run=dry_run)
                 self.rollback_workers(dry_run=dry_run)
             if stage.value == KubeClusterStages.bootstrap.value:
                 print(stage_output)
@@ -464,7 +466,7 @@ class KubeCluster:
                 self.destroy(template=destroy_template, dry_run=dry_run)
             if stage.value == KubeClusterStages.post_installs.value:
                 print(stage_output)
-                self.executor = self._generate_executor(dry_run=dry_run)
+                self.executor = self._generate_executor(destroy=True, dry_run=dry_run)
                 self.post_destroy(dry_run=dry_run)
             print(serializers.crayons.green(msg))
             return

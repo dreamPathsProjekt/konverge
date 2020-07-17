@@ -13,4 +13,4 @@ def execute():
     # cluster.execute(wait_period=240, stage=KubeClusterStages.create)
     # cluster.execute(dry_run=True, destroy=True, destroy_template=True)
     # cluster.execute(dry_run=True, stage=KubeClusterStages.join)
-    cluster.execute(wait_period=60, stage=KubeClusterStages.post_installs)
+    cluster.execute(wait_period=60, destroy=True, stage=KubeClusterStages.post_installs)

@@ -550,6 +550,12 @@ class KubeExecutor:
         self.home = os.path.expanduser('~')
         self.remote = self.wrapper.execute('echo $HOME', hide=True).stdout.strip() if self.wrapper else None
 
+    def remove_cluster_node(self, instance: InstanceClone):
+        print(crayons.cyan(f'Removing node {instance.vm_attributes.name}'))
+        remove = self.local.run(f'HOME={self.home} kubectl delete node {instance.vm_attributes.name}')
+        if remove.ok:
+            print(crayons.green(f'Node {instance.vm_attributes.name} removed from cluster.'))
+
     def get_current_context(self):
         print(crayons.cyan('Verify that the cluster and context are the correct ones'))
         current_context = self.local.run(f'HOME={self.home} kubectl config current-context').stdout.strip()
