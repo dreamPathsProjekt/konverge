@@ -46,5 +46,8 @@ echo "source <(kubectl completion bash)" >> "${HOME}"/.bashrc
 ```Bash
 # Upgrade pip to version ==20.0.2
 pip install --upgrade pip
+# Install tag version
+pip install -e git+https://github.com/dreamPathsProjekt/konverge@v0.5.0#egg=konverge
+# Install from master
 pip install -e git+https://github.com/dreamPathsProjekt/konverge#egg=konverge
 ```
