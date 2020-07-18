@@ -9,6 +9,8 @@ from proxmoxer.core import ResourceException
 
 from konverge.utils import (
     Storage,
+    StorageFormat,
+    FORMATS,
     VMAttributes,
     BootMedia,
     BackupMode
@@ -154,6 +156,13 @@ class ProxmoxAPIClient:
             ]
         return []
 
+    def get_storage_from_type(self, storage_type: Storage):
+        storages = self.get_cluster_storage(storage_type, verbose=True)
+        for storage_result in storages:
+            if storage_result.get('type') == storage_type.value:
+                return storage_result.get('storage')
+        return None
+
     def get_storage_detail_path_content(self, storage_type: Storage = None):
         storage_details = self.get_cluster_storage(storage_type=storage_type, verbose=True)[0]
         path = storage_details.get('path')
@@ -221,12 +230,45 @@ class VMAPIClient(ProxmoxAPIClient):
         node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).template.post()
 
-    def clone_vm_from_template(self, node, source_vmid, target_vmid, name='', description='', pool=''):
+    def clone_vm_from_template(
+            self,
+            node,
+            source_vmid,
+            target_vmid,
+            name='',
+            description='',
+            pool='',
+            full=False,
+            storage: Storage = None,
+            format: StorageFormat = StorageFormat.raw
+    ):
         """
         Parameter full creates a full disk clone of VM. For templates default is False: creates a linked clone.
         """
         node_resource = self._get_single_node_resource(node)
         qemu_instance = self.client.nodes(node_resource['name']).qemu(source_vmid)
+        if full:
+            if format.value not in FORMATS.get(storage.value):
+                logging.warning(crayons.yellow(f'Storage format {format.value} not valid for storage type {storage.value}'))
+                valid_format = FORMATS.get(storage.value)[0]
+                logging.warning(crayons.yellow(f'Auto-select format {valid_format.value}'))
+            else:
+                valid_format = format
+
+            storage_name = self.get_storage_from_type(storage)
+            if not storage_name:
+                logging.error(crayons.red(f'Storage {storage.value} not found in PVE Cluster.'))
+                return None
+
+            return qemu_instance.clone.create(
+                newid=target_vmid,
+                name=name,
+                description=description,
+                pool=pool,
+                full='1',
+                storage=storage_name,
+                format=valid_format.value
+            )
         return qemu_instance.clone.create(
             newid=target_vmid,
             name=name,
