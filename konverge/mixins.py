@@ -79,7 +79,7 @@ class CommonVMMixin:
             elif storage_result.get('type') == self.vm_attributes.storage_type.value:
                 return storage_result.get('storage')
 
-    def generate_allowed_ip(self):
+    def generate_allowed_ip(self, external: set = None):
         network = settings.pve_cluster_config_client.get_network_base()
         loadbalancer = settings.pve_cluster_config_client.loadbalancer_ip_range_to_string_or_list(dash=False)
         start, end = settings.pve_cluster_config_client.get_allowed_range()
@@ -90,6 +90,7 @@ class CommonVMMixin:
         allocated.update(self.client.get_all_vm_allocated_ips_all_nodes())
         # Include lb range if exists.
         allocated.update(loadbalancer)
+        allocated.update(external) if external else None
         print(crayons.white(f'All allocated ips: {allocated}'))
 
         for subnet_ip in range(start, end):
@@ -287,12 +288,24 @@ class CommonVMMixin:
         self.create_allowed_ip_if_not_exists()
         gateway = self.vm_attributes.gateway if self.vm_attributes.gateway else settings.pve_cluster_config_client.gateway
 
-        print(crayons.blue(f'Inject cloudinit values ipconfig: ip={self.allowed_ip}, gateway={gateway}, sshkeys: {self.vm_attributes.public_ssh_key}'))
+        print(crayons.blue(f'Inject cloudinit values ipconfig0: ip={self.allowed_ip}, gateway={gateway}, sshkeys: {self.vm_attributes.public_ssh_key}'))
         self.client.inject_vm_cloudinit(
             node=self.vm_attributes.node,
             vmid=self.vmid,
             ssh_key_content=self.vm_attributes.read_public_key(),
             vm_ip=self.allowed_ip,
+            gateway=gateway
+        )
+
+    def attach_iface_to_vm(self):
+        vm_ip = set(self.allowed_ip)
+        secondary_ip = self.generate_allowed_ip(external=vm_ip)
+        gateway = self.vm_attributes.gateway if self.vm_attributes.gateway else settings.pve_cluster_config_client.gateway
+        print(crayons.blue(f'Inject cloudinit values ipconfig1: ip={secondary_ip}, gateway={gateway} for secondary iface'))
+        self.client.attach_iface(
+            node=self.vm_attributes.node,
+            vmid=self.vmid,
+            iface_ip=secondary_ip,
             gateway=gateway
         )
 

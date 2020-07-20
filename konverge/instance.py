@@ -22,7 +22,8 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             proxmox_node: FabricWrapper = None,
             vmid=None,
             username=None,
-            hotplug_disk_size: int = None
+            hotplug_disk_size: int = None,
+            secondary_iface=False
     ):
         self.vm_attributes = vm_attributes
         self.client = client
@@ -41,6 +42,7 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         self.vm_attributes.pool = self.client.get_or_create_pool(name=self.vm_attributes.pool)
         self.volume_type, self.driver = ('--scsi0', 'scsi0') if self.vm_attributes.scsi else ('--virtio0', 'virtio0')
         self.hotplug_disk_size = hotplug_disk_size
+        self.secondary_iface = secondary_iface
         self.allowed_ip = ''
         self.vm_attributes.os_type = self.template.vm_attributes.os_type if self.template else vm_attributes.os_type
 
@@ -62,6 +64,10 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             pass
         else:
             self.vm_attributes.description = f'Kubernetes node {self.vm_attributes.name}'
+
+    @property
+    def has_template_storage(self):
+        return self.template.storage == self.storage
 
     def generate_vmid_and_username(self, id_prefix, preinstall=True, external: set = None):
         start = int(f'{id_prefix}01')
@@ -90,6 +96,15 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
             name=self.vm_attributes.name,
             description=self.vm_attributes.description,
             pool=self.template.vm_attributes.pool
+        ) if self.has_template_storage else self.client.clone_vm_from_template(
+            node=self.vm_attributes.node,
+            source_vmid=self.template.vmid,
+            target_vmid=self.vmid,
+            name=self.vm_attributes.name,
+            description=self.vm_attributes.description,
+            pool=self.template.vm_attributes.pool,
+            full=True,
+            storage=self.vm_attributes.storage_type
         )
         if not self.log_create_delete(created):
             return created
@@ -172,6 +187,7 @@ class InstanceClone(CommonVMMixin, ExecuteStagesMixin):
         print(crayons.cyan(f'Stage: Resize disk for VM: {self.vm_attributes.name} {self.vmid} to {self.vm_attributes.disk_size}'))
         self.set_instance_disk_size()
         self.inject_cloudinit_values()
+        self.attach_iface_to_vm() if self.secondary_iface else None
 
         if self.hotplug_disk_size:
             print(crayons.cyan(f'Enable hotplug for VM: {self.vm_attributes.name} {self.vmid}'))

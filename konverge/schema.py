@@ -215,6 +215,16 @@ KUBE_CLUSTER_SCHEMA = {
                     'type': 'integer',
                     'minimum': 1
                 },
+                'pve_storage': {
+                    'type': 'object',
+                    'properties': {
+                        'type': {
+                            'type': 'string',
+                            'pattern': '^(cephfs|cifs|dir|drbd|fake|glusterfs|iscsi|iscsidirect|lvm|lvmthin|nfs|rbd|sheepdog|zfs|zfspool)$'
+                        }
+                    },
+                    'required': ['type']
+                },
                 'disk': {
                     'type': 'object',
                     'properties': {
@@ -254,6 +264,16 @@ KUBE_CLUSTER_SCHEMA = {
                         'type': 'integer',
                         'minimum': 1
                     },
+                    'pve_storage': {
+                        'type': 'object',
+                        'properties': {
+                            'type': {
+                                'type': 'string',
+                                'pattern': '^(cephfs|cifs|dir|drbd|fake|glusterfs|iscsi|iscsidirect|lvm|lvmthin|nfs|rbd|sheepdog|zfs|zfspool)$'
+                            }
+                        },
+                        'required': ['type']
+                    },
                     'disk': {
                         'type': 'object',
                         'properties': {
@@ -269,7 +289,8 @@ KUBE_CLUSTER_SCHEMA = {
                         },
                         'required': ['size']
                     },
-                    'scsi': {'type': 'boolean'}
+                    'scsi': {'type': 'boolean'},
+                    'secondary_iface': {'type': 'boolean'}
                 },
                 'required': ['name', 'node', 'scale', 'cpus', 'memory', 'disk'],
                 'uniqueItems': True
