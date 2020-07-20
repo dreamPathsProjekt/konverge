@@ -244,7 +244,7 @@ class VMAttributes:
         self.os_type = os_type
         self.cpus = cpus
         self.memory = memory
-        self.disk_size = disk_size
+        self.disk_size = disk_size if disk_size else 5
         self.scsi = scsi
         self.storage_type = storage_type
         self.image_storage_type = image_storage_type

@@ -111,7 +111,7 @@ class VMQuery:
             scsi=('scsi0' in vm_config.keys()),
             memory=vm_config.get('memory'),
             storage_type=storage_type,
-            disk_size=human_readable_disk_size(vm.get('maxdisk'))[0],
+            disk_size=human_readable_disk_size(vm_config.get('maxdisk'))[0] if vm_config.get('maxdisk') else None,
             gateway=gateway,
             ssh_keyname=vm_config.get('sshkeys')
         )

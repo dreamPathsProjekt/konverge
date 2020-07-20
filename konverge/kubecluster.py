@@ -159,13 +159,16 @@ class KubeCluster:
                 runners.create(disable_backups=disable_backups, dry_run=dry_run)
 
     def destroy(self, template=False, dry_run=False):
-        for category, runners in self.runners.items():
-            if template and category == VMCategory.template.value:
-                runners.destroy(dry_run=dry_run)
-            elif category == VMCategory.workers.value:
-                [runner.destroy(dry_run=dry_run) for runner in runners]
-            elif category == VMCategory.masters.value:
-                runners.destroy(dry_run=dry_run)
+        worker_runners = self.runners.get(VMCategory.workers.value)
+        for runner in worker_runners:
+            runner.destroy(dry_run=dry_run)
+
+        master_runners = self.runners.get(VMCategory.masters.value)
+        master_runners.destroy(dry_run=dry_run)
+
+        if template:
+            template_runners = self.runners.get(VMCategory.template.value)
+            template_runners.destroy(dry_run=dry_run)
 
     def install_loadbalancer(self, dry_run=False):
         """
@@ -450,11 +453,11 @@ class KubeCluster:
             stage: typing.Union[KubeClusterStages, None] = None,
             dry_run=False
     ):
-        # if self.exists and not destroy:
-        #     serializers.logging.warning(
-        #         serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
-        #     )
-        #     return
+        if self.exists and not destroy:
+            serializers.logging.warning(
+                serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
+            )
+            return
 
         stagemsg = f' Stage: {stage.value}' if stage else ''
         dry = ' (dry-run)' if dry_run else ''
@@ -466,7 +469,7 @@ class KubeCluster:
         stage_join = serializers.crayons.yellow(f'Running Stage: {KubeClusterStages.join.value}')
         stage_post_installs = serializers.crayons.yellow(f'Running Stage: {KubeClusterStages.post_installs.value}')
         wait_create = 0 if dry_run else wait_period
-        wait_bootstrap = 0 if dry_run else 120
+        wait_bootstrap = 0 if dry_run else 60
 
         if destroy:
             print()
