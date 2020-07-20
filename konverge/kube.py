@@ -3,6 +3,7 @@ import time
 import uuid
 import yaml
 
+import invoke
 from typing import NamedTuple, TYPE_CHECKING
 from fabric2 import Result
 
@@ -270,13 +271,19 @@ class KubeProvisioner:
         print(crayons.cyan('Pulling Required Images from gcr.io'))
         has_patch, _, _, _ = semver_has_patch_suffix(version)
         image_version = version if has_patch else f'stable-{version}'
-        self.instance.self_node_sudo.execute(f'kubeadm config images pull --kubernetes-version {image_version}')
+        version_snippet = f"--kubernetes-version {image_version.split('-')[0]}" if '-' in image_version else f'--kubernetes-version {image_version}'
+        try:
+            self.instance.self_node_sudo.execute(f'kubeadm config images pull {version_snippet}', warn=True)
+        except invoke.exceptions.UnexpectedExit:
+            logging.warning(crayons.yellow(f'Version: {version_snippet} does not exist.'))
+            version_snippet = ''
+            self.instance.self_node_sudo.execute('kubeadm config images pull')
 
         print(crayons.blue('Running pre-flight checks & deploying Control Plane'))
         init_command = (
-            f'kubeadm init --control-plane-endpoint "{self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port}" --upload-certs {cni_definitions.networking_option} --kubernetes-version {image_version}'
+            f'kubeadm init --control-plane-endpoint "{self.control_plane.apiserver_ip}:{self.control_plane.apiserver_port}" --upload-certs {cni_definitions.networking_option} {version_snippet}'
         ) if self.control_plane.ha_masters else (
-            f'kubeadm init {cni_definitions.networking_option} --kubernetes-version {image_version}'
+            f'kubeadm init {cni_definitions.networking_option} {version_snippet}'
         )
 
         deployed = self.instance.self_node_sudo.execute(init_command)
@@ -590,9 +597,11 @@ class KubeExecutor:
 
     def remove_cluster_node(self, instance: InstanceClone):
         print(crayons.cyan(f'Removing node {instance.vm_attributes.name}'))
-        remove = self.local.run(f'HOME={self.home} kubectl delete node {instance.vm_attributes.name}')
+        remove = self.local.run(f'HOME={self.home} kubectl delete node {instance.vm_attributes.name}', warn=True)
         if remove.ok:
             print(crayons.green(f'Node {instance.vm_attributes.name} removed from cluster.'))
+        else:
+            logging.warning(crayons.yellow(f'Node {instance.vm_attributes.name} was not found or not removed from cluster.'))
 
     def get_current_context(self):
         print(crayons.cyan('Verify that the cluster and context are the correct ones'))
@@ -740,6 +749,30 @@ class KubeExecutor:
         if cluster.cluster.context:
             kube_config.custom_context = cluster.cluster.context
         return kube_config.cluster_exists()
+
+    def is_cluster_reachable(self, cluster: 'ClusterAttributesSerializer'):
+        if not self.cluster_exists(cluster):
+            return False
+        exit_code = self.local.run(f'HOME={self.home} kubectl cluster-info; echo $?', hide=True)
+        exit_code = exit_code.stdout.split()[-1].strip()
+        return exit_code == '0'
+
+    def get_control_plane_virtual_ip(self, cluster: 'ClusterAttributesSerializer'):
+        if not self.is_cluster_reachable(cluster):
+            return None
+        context = cluster.cluster.context
+        self.local.run(f'HOME={self.home} kubectl config use-context {context}')
+        cluster_info = self.local.run(f'HOME={self.home} kubectl cluster-info | head -n 1').stdout.strip()
+        if 'is running at ' in cluster_info:
+            return cluster_info.split('https://')[-1].split(':')[0]
+
+    def get_node_names(self, cluster: 'ClusterAttributesSerializer'):
+        if not self.is_cluster_reachable(cluster):
+            return []
+        context = cluster.cluster.context
+        self.local.run(f'HOME={self.home} kubectl config use-context {context}')
+        nodes = self.local.run(f'HOME={self.home} kubectl get nodes -o jsonpath=\'{{.items[*].metadata.name}}\'', hide=True).stdout.strip()
+        return nodes.split()
 
     def wait_for_running_system_status(self, namespace='kube-system', remote=False, poll_interval=1):
         runner = LOCAL.run if not remote else self.wrapper.execute

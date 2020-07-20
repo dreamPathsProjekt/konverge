@@ -91,14 +91,14 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
 
         logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found. Searching in {self.location}.'))
         image_filename = os.path.join(self.cloudinit_location, self.cloud_image)
-        output = self.proxmox_node.execute(f'ls -l {image_filename}', hide=True).stdout.strip()
-        if image_filename in output:
+        output = self.proxmox_node.execute(f'ls -l {image_filename}', hide=True, warn=True)
+        if output.ok and image_filename in output.stdout.strip():
             print(crayons.green(f'Cloud image: {self.cloud_image} already exists in {self.cloudinit_location}.'))
             return image_filename
 
         logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found in {self.cloudinit_location}. Downloading {self.full_image_url}'))
-        get_image_command = f'rm -f {self.cloud_image}; wget {self.full_image_url} && mv {self.cloud_image} {self.cloudinit_location}'
-        downloaded = self.proxmox_node.execute(get_image_command)
+        get_image_command = f'rm -vf {self.cloud_image}; wget {self.full_image_url} && mkdir -vp {self.cloudinit_location} && mv {self.cloud_image} {self.cloudinit_location}'
+        downloaded = self.proxmox_node.execute(get_image_command, warn=True)
         if downloaded.ok:
             print(crayons.green(f'Image {self.cloud_image} downloaded to {self.cloudinit_location}. Filename: {image_filename}'))
         else:

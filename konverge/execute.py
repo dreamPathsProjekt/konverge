@@ -14,11 +14,11 @@ def execute():
     # cluster.execute(dry_run=False, destroy=True, destroy_template=False)
     # cluster.execute(wait_period=120, stage=KubeClusterStages.post_installs)
     # cluster.execute(wait_period=240)
+    from konverge.kube import KubeExecutor
+    executor = KubeExecutor()
+    print(executor.get_node_names(cluster=cluster.cluster))
 
-    from konverge.settings import vm_client
-    from konverge.utils import StorageFormat, Storage
-
-    cluster.execute(wait_period=60, stage=KubeClusterStages.create)
+    # cluster.execute(wait_period=240)
     # cluster.execute(wait_period=240, stage=KubeClusterStages.join)
 
     # Note: zfspool is much faster boot than NFS.

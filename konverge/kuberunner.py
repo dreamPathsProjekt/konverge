@@ -125,6 +125,7 @@ class KubeTemplateRunner(KubeRunner):
                     )
                 )
                 continue
+
             vmid = instance.execute(
                 kubernetes_version=self.serializer.cluster_attributes.version,
                 docker_version=self.serializer.cluster_attributes.docker,
@@ -148,7 +149,7 @@ class KubeTemplateRunner(KubeRunner):
                     )
                 )
                 continue
-            # TODO: Template execute(destroy=True) does not remove templates. Uses destroy vm.
+
             instance.execute(
                 kubernetes_version=self.serializer.cluster_attributes.version,
                 docker_version=self.serializer.cluster_attributes.docker,
