@@ -162,6 +162,19 @@ class Storage(EnumCommon):
     zfspool = 'zfspool'
 
 
+class StorageFormat(EnumCommon):
+    raw = 'raw'
+    qcow = 'qcow'
+    vmdk = 'vmdk'
+
+
+FORMATS = {
+    Storage.nfs.value: (StorageFormat.raw.value, StorageFormat.qcow.value),
+    Storage.zfs.value: (StorageFormat.raw.value,),
+    Storage.zfspool.value: (StorageFormat.raw.value,)
+}
+
+
 class BootMedia(Enum):
     floppy = 'a'
     hard_disk = 'c'

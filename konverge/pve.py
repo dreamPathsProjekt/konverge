@@ -6,9 +6,12 @@ import crayons
 
 from proxmoxer import ProxmoxAPI
 from proxmoxer.core import ResourceException
+from retrying import retry
 
 from konverge.utils import (
     Storage,
+    StorageFormat,
+    FORMATS,
     VMAttributes,
     BootMedia,
     BackupMode
@@ -154,6 +157,13 @@ class ProxmoxAPIClient:
             ]
         return []
 
+    def get_storage_from_type(self, storage_type: Storage):
+        storages = self.get_cluster_storage(storage_type, verbose=True)
+        for storage_result in storages:
+            if storage_result.get('type') == storage_type.value:
+                return storage_result.get('storage')
+        return None
+
     def get_storage_detail_path_content(self, storage_type: Storage = None):
         storage_details = self.get_cluster_storage(storage_type=storage_type, verbose=True)[0]
         path = storage_details.get('path')
@@ -201,6 +211,7 @@ class VMAPIClient(ProxmoxAPIClient):
             storage=self.get_cluster_storage(storage_type=vm_attributes.storage_type)[0].get('name'),
             net0=f'model=virtio,bridge=vmbr0,firewall=1'
         )
+
     def start_vm(self, node, vmid):
         node_resource = self._get_single_node_resource(node)
         return self.client.nodes(node_resource['name']).qemu(vmid).status.start.post()
@@ -221,12 +232,50 @@ class VMAPIClient(ProxmoxAPIClient):
         node_resource = self._get_single_node_resource(node)
         self.client.nodes(node_resource['name']).qemu(vmid).template.post()
 
-    def clone_vm_from_template(self, node, source_vmid, target_vmid, name='', description='', pool=''):
+    @retry(retry_on_exception=ResourceException, wait_exponential_multiplier=1000, wait_exponential_max=10000)
+    def clone_vm_from_template(
+            self,
+            node,
+            source_vmid,
+            target_vmid,
+            name='',
+            description='',
+            pool='',
+            full=False,
+            storage: Storage = None,
+            storage_format: StorageFormat = StorageFormat.raw
+    ):
         """
         Parameter full creates a full disk clone of VM. For templates default is False: creates a linked clone.
+        Full is used when instance storage is different to template storage.
         """
         node_resource = self._get_single_node_resource(node)
         qemu_instance = self.client.nodes(node_resource['name']).qemu(source_vmid)
+        if full:
+            if not storage_format:
+                valid_format = FORMATS.get(storage.value)[0]
+                logging.warning(crayons.yellow(f'Auto-select format {valid_format.value}'))
+            elif storage_format.value not in FORMATS.get(storage.value):
+                logging.warning(crayons.yellow(f'Storage format {storage_format.value} not valid for storage type {storage.value}'))
+                valid_format = FORMATS.get(storage.value)[0]
+                logging.warning(crayons.yellow(f'Auto-select format {valid_format.value}'))
+            else:
+                valid_format = storage_format
+
+            storage_name = self.get_storage_from_type(storage)
+            if not storage_name:
+                logging.error(crayons.red(f'Storage {storage.value} not found in PVE Cluster.'))
+                return None
+
+            return qemu_instance.clone.create(
+                newid=target_vmid,
+                name=name,
+                description=description,
+                pool=pool,
+                full='1',
+                storage=storage_name,
+                format=valid_format.value
+            )
         return qemu_instance.clone.create(
             newid=target_vmid,
             name=name,
@@ -279,6 +328,7 @@ class VMAPIClient(ProxmoxAPIClient):
             logging.error(crayons.red(vmid_config_error))
             return None
 
+    @retry(retry_on_exception=ResourceException, wait_exponential_multiplier=1000, wait_exponential_max=10000)
     def update_vm_config(self, node, vmid, storage_operation=False, **vm_kwargs):
         node_resource = self._get_single_node_resource(node)
         operation = (
@@ -288,18 +338,26 @@ class VMAPIClient(ProxmoxAPIClient):
         )
         return operation(**vm_kwargs)
 
+    @retry(retry_on_exception=ResourceException, wait_exponential_multiplier=1000, wait_exponential_max=10000)
     def enable_hotplug(self, node, vmid, hotplug='1', disable=False):
-        try:
-            return self.update_vm_config(
-                node=node,
-                vmid=vmid,
-                storage_operation=True,
-                hotplug='0' if disable else hotplug
-            )
-        except ResourceException as invalid:
-            logging.error(crayons.red(invalid))
-            return None
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            hotplug='0' if disable else hotplug
+        )
 
+    @retry(retry_on_exception=ResourceException, wait_exponential_multiplier=1000, wait_exponential_max=10000)
+    def attach_iface(self, node, vmid, iface_ip, gateway, netmask='24'):
+        return self.update_vm_config(
+            node=node,
+            vmid=vmid,
+            storage_operation=True,
+            net1=f'model=virtio,bridge=vmbr0,firewall=1',
+            ipconfig1=f'ip={iface_ip}/{netmask},gw={gateway}'
+        )
+
+    @retry(retry_on_exception=ResourceException, wait_exponential_multiplier=1000, wait_exponential_max=10000)
     def attach_volume_to_vm(self, node, vmid, volume, scsihw='virtio-scsi-pci', scsi=False, disk_size=5, drive_slot='0'):
         volume_details = f'file={volume},size={disk_size}G'
         return self.update_vm_config(
@@ -409,7 +467,12 @@ class VMAPIClient(ProxmoxAPIClient):
             vms = self.get_cluster_vms(node)
             if not vms:
                 continue
-            [allocated.add(self.get_ip_config_from_vm_cloudinit(node=node, vmid=vm.get('vmid'))[0]) for vm in vms]
+            for vm in vms:
+                ipconfig0 = self.get_ip_config_from_vm_cloudinit(node=node, vmid=vm.get('vmid'), ipconfig_slot=0)
+                ipconfig1 = self.get_ip_config_from_vm_cloudinit(node=node, vmid=vm.get('vmid'), ipconfig_slot=1)
+                allocated.add(ipconfig0[0])
+                allocated.add(ipconfig1[0])
+
         allocated.remove(None)
         print(crayons.white(f'Cloudinit allocated ips: {allocated}'))
         return allocated

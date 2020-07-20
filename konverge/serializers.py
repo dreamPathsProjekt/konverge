@@ -161,9 +161,11 @@ class ClusterInstanceSerializer:
         self.memory = self.config.get('memory')
         self.disk = self.config.get('disk')
         self.scsi = self.config.get('scsi') or False
+        self.secondary_iface = self.config.get('secondary_iface') or False
         self.disk_size = self.disk.get('size') if self.disk else None
         self.hotplug = self.disk.get('hotplug') if self.disk else None
         self.hotplug_size = self.disk.get('hotplug_size') if self.disk else None
+        self.storage_type, self.image_storage_type = self.get_pve_storage()
 
         self.instances = []
         self.state = {node: [] for node in self.nodes}
@@ -180,6 +182,16 @@ class ClusterInstanceSerializer:
             template: CloudinitTemplate
             if template.vm_attributes.node == node:
                 return template
+
+    def get_pve_storage(self):
+        pve_storage = self.config.get('pve_storage')
+
+        try:
+            storage_type = Storage.return_value(pve_storage.get('type'))
+        except AttributeError as attr_error:
+            storage_type = None
+            logging.warning(crayons.yellow(attr_error))
+        return storage_type, None
 
     def serialize(self):
         """
@@ -203,14 +215,19 @@ class ClusterInstanceSerializer:
             # Inherit template instance storage type and username.
             # Use VMID_PLACEHOLDER, to calculate vmid dynamically later.
             template = self.get_template(node)
-            vm_attributes.storage_type = template.vm_attributes.storage_type
+            if self.storage_type:
+                vm_attributes.storage_type = self.storage_type
+            else:
+                vm_attributes.storage_type = template.vm_attributes.storage_type
+
             clone = InstanceClone(
                 vm_attributes=vm_attributes,
                 client=settings.vm_client,
                 template=template,
-                hotplug_disk_size=self.hotplug_size if self.hotplug and self.hotplug_valid else None,
                 vmid=settings.VMID_PLACEHOLDER,
-                username=self.username
+                username=self.username,
+                hotplug_disk_size=self.hotplug_size if self.hotplug and self.hotplug_valid else None,
+                secondary_iface=self.secondary_iface
             )
             self.instances.append(clone)
             self.state[clone.vm_attributes.node].append(
@@ -269,7 +286,6 @@ class ClusterTemplateSerializer(ClusterInstanceSerializer):
             config=config,
             cluster_attributes=cluster_attributes
         )
-        self.storage_type, self.image_storage_type = self.get_pve_storage()
         self.state = {
             node: {
                 'name': f'{node}-{self.name}' if self.name else None,
