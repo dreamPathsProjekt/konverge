@@ -9,6 +9,8 @@ setup(
     url="https://github.com/dreamPathsProjekt/konverge",
     packages=find_packages(),
     include_package_data=True,
+    package_dir={'konverge': 'konverge'},
+    package_data={'konverge': ['bootstrap/*.sh', 'bootstrap/*.yaml', 'bootstrap/*.json']},
     install_requires=[
         "bcrypt ==3.1.7",
         "certifi ==2019.11.28",
@@ -32,11 +34,12 @@ setup(
         "PyNaCl ==1.3.0",
         "PyYAML ==5.3",
         "requests ==2.22.0",
+        "retrying ==1.3.3",
         "six ==1.14.0",
         "urllib3 ==1.25.8"
     ],
     entry_points="""
     [console_scripts]
-    konverge=konverge.execute:execute
+    konverge=konverge.cli:cli
     """,
 )

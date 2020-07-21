@@ -83,13 +83,16 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         raise NotImplementedError
 
     def download_cloudinit_image(self):
+        if not self.vm_attributes.image_storage_type_is_valid:
+            logging.error(crayons.red(f'Image storage type: {self.vm_attributes.image_storage_type} is invalid.'))
+            return None
         items = self.client.get_storage_content_items(node=self.vm_attributes.node, storage_type=self.vm_attributes.image_storage_type)
         image_items = list(filter(lambda item: self.cloud_image in item.get('name'), items))
         if image_items:
             print(crayons.green(f'Cloud image: {self.cloud_image} already exists.'))
             return image_items
 
-        logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found. Searching in {self.location}.'))
+        logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found. Searching in {self.cloudinit_location}.'))
         image_filename = os.path.join(self.cloudinit_location, self.cloud_image)
         output = self.proxmox_node.execute(f'ls -l {image_filename}', hide=True, warn=True)
         if output.ok and image_filename in output.stdout.strip():
@@ -97,7 +100,7 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
             return image_filename
 
         logging.warning(crayons.yellow(f'Cloud image: {self.cloud_image} not found in {self.cloudinit_location}. Downloading {self.full_image_url}'))
-        get_image_command = f'rm -vf {self.cloud_image}; wget {self.full_image_url} && mkdir -vp {self.cloudinit_location} && mv {self.cloud_image} {self.cloudinit_location}'
+        get_image_command = f'rm -vf {self.cloud_image}; wget {self.full_image_url} && mv {self.cloud_image} {self.cloudinit_location}'
         downloaded = self.proxmox_node.execute(get_image_command, warn=True)
         if downloaded.ok:
             print(crayons.green(f'Image {self.cloud_image} downloaded to {self.cloudinit_location}. Filename: {image_filename}'))
@@ -109,11 +112,13 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
     def import_cloudinit_image(self, image_filename):
         if not image_filename:
             logging.error(crayons.red(f'Cannot import image: {self.cloud_image}. Filename: {image_filename}'))
-            return
+            return False
         print(crayons.cyan(f'Importing Image: {self.cloud_image}'))
         imported = self.proxmox_node.execute(f'qm importdisk {self.vmid} {image_filename} {self.storage}')
         if imported.ok:
             print(crayons.green(f'Image {self.cloud_image} imported successfully.'))
+            return True
+        return False
 
     def execute(
         self,
@@ -143,9 +148,11 @@ class CloudinitTemplate(CommonVMMixin, ExecuteStagesMixin):
         logging.warning(crayons.yellow(self.create_vm()))
 
         print(crayons.cyan('Stage: Import image and get unused storage'))
-        self.import_cloudinit_image(image_filename)
-        volume = self.get_storage(unused=True)
+        if not self.import_cloudinit_image(image_filename):
+            logging.error(crayons.red('Operation failed.'))
+            return self.vmid
 
+        volume = self.get_storage(unused=True)
         print(crayons.cyan(f'Stage: Attach volume to VM {self.vm_attributes.name} {self.vmid} on node {self.vm_attributes.node}'))
         logging.warning(crayons.yellow(self.attach_volume_to_vm(volume)))
 

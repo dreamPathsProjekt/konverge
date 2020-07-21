@@ -2,8 +2,12 @@ import os
 import subprocess
 import inspect
 import logging
+import json
 
 import crayons
+
+from proxmoxer.backends import https
+from requests.exceptions import SSLError
 
 from konverge.pve import ProxmoxAPIClient
 from konverge.pvecluster import ProxmoxClusterConfigFile, PVEClusterConfig
@@ -37,6 +41,39 @@ def cluster_config_factory(filename=None, config_type='pve'):
     return factory()
 
 
+def write_pve_credentials(host: str, user: str, password: str, backend='https', verify_ssl=False):
+    creds = {
+        'host': host,
+        'user': user,
+        'password': password,
+        'backend': backend,
+        'verify_ssl': verify_ssl
+    }
+    location = os.path.join(HOME_DIR, '.konverge')
+    filename = os.path.join(location, 'credentials.json')
+    try:
+        if not os.path.exists(location):
+            os.mkdir(location)
+        with open(filename, mode='w') as creds_file:
+            json.dump(creds, creds_file)
+    except Exception as error:
+        logging.error(crayons.red(error))
+
+
+def read_pve_credentials():
+    location = os.path.join(HOME_DIR, '.konverge')
+    filename = os.path.join(location, 'credentials.json')
+    try:
+        if not os.path.exists(location):
+            logging.error(crayons.red(f'Credentials file {filename} missing.'))
+            return {}
+        with open(filename, mode='r') as creds_file:
+            return json.load(creds_file)
+    except Exception as error:
+        logging.error(crayons.red(error))
+        return {}
+
+
 PVE_FILENAME = os.getenv('PVE_FILENAME')
 KUBE_FILENAME = os.getenv('KUBE_FILENAME')
 
@@ -50,16 +87,30 @@ except Exception as import_error:
 
 
 VMAPIClientFactory = ProxmoxAPIClient.api_client_factory(instance_type='vm')
-vm_client = VMAPIClientFactory(
-    host=os.getenv('PROXMOX_HOST'),
-    user=os.getenv('PROXMOX_USER'),
-    password=os.getenv('PROXMOX_PASSWORD')
-)
-
-
 LXCAPIClientFactory = ProxmoxAPIClient.api_client_factory(instance_type='lxc')
-lxc_client = LXCAPIClientFactory(
-    host=os.getenv('PROXMOX_HOST'),
-    user=os.getenv('PROXMOX_USER'),
-    password=os.getenv('PROXMOX_PASSWORD')
-)
+
+credentials = read_pve_credentials()
+vm_client = None
+lxc_client = None
+if credentials:
+    try:
+        vm_client = VMAPIClientFactory(
+            host=credentials.get('host'),
+            user=credentials.get('user'),
+            password=credentials.get('password'),
+            backend=credentials.get('backend'),
+            verify_ssl=credentials.get('verify_ssl')
+        )
+        lxc_client = LXCAPIClientFactory(
+            host=credentials.get('host'),
+            user=credentials.get('user'),
+            password=credentials.get('password'),
+            backend=credentials.get('backend'),
+            verify_ssl=credentials.get('verify_ssl')
+        )
+    except https.AuthenticationError as auth:
+        logging.error(crayons.red(auth))
+        logging.warning(crayons.yellow(f'Unauthorized. Authentication failed for {credentials.get("host")}'))
+    except SSLError as ssl:
+        logging.error(crayons.red(ssl))
+        logging.warning(crayons.yellow(f'Verify SSL Failed for {credentials.get("host")}'))

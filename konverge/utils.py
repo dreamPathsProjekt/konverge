@@ -252,6 +252,13 @@ class VMAttributes:
         self.gateway = gateway
 
     @property
+    def image_storage_type_is_valid(self):
+        return self.image_storage_type not in (
+            Storage.zfs,
+            Storage.zfspool
+        )
+
+    @property
     def ssh_keyname(self):
         return self._ssh_keyname
 

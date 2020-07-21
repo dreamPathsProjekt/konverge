@@ -41,7 +41,7 @@ sudo apt-get install -y kubectl
 echo "source <(kubectl completion bash)" >> "${HOME}"/.bashrc
 ```
 
-## Installation
+## Install `konverge`
 
 ```Bash
 # Upgrade pip to version ==20.0.2
@@ -50,4 +50,27 @@ pip install --upgrade pip
 pip install -e git+https://github.com/dreamPathsProjekt/konverge@v0.5.0#egg=konverge
 # Install from master
 pip install -e git+https://github.com/dreamPathsProjekt/konverge#egg=konverge
+```
+
+## `konverge` Auto Completion
+
+### Bash
+
+```Bash
+# Add this to ~/.bashrc
+eval "$(_KONVERGE_COMPLETE=source_bash konverge)"
+```
+
+### ZSH
+
+```Bash
+# Add this to ~/.zshrc
+eval "$(_KONVERGE_COMPLETE=source_zsh konverge)"
+```
+
+### Fish
+
+```Bash
+# Add this to ~/.config/fish/completions/konverge.fish
+eval "$(env _KONVERGE_COMPLETE=source_fish konverge)"
 ```

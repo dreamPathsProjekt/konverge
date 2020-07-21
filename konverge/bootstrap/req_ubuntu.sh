@@ -30,6 +30,10 @@ do
     (( counter++ ))
 done
 
+# Install Canonical HWE for 18.04
+DEBIAN_FRONTEND=noninteractive sudo apt-get -yq --install-recommends -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" install linux-generic-hwe-18.04
+DEBIAN_FRONTEND=noninteractive sudo apt-get -yq autoremove
+
 # Install required packages
 if [[ -z "${DOCKER_CE}" ]]; then
     sudo apt-get install -y docker.io=${DOCKER_VERSION}
@@ -54,6 +58,9 @@ else
 fi
 
 sudo cp "${DAEMON_JSON_LOCATION}/daemon.json" /etc/docker
+
+DEBIAN_FRONTEND=noninteractive sudo apt-get update && \
+DEBIAN_FRONTEND=noninteractive sudo apt-get dist-upgrade -yq
 
 # Apply new dockerd settings with cgroupdriver=systemd
 sudo systemctl daemon-reload && \
