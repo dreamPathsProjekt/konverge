@@ -175,7 +175,7 @@ def create(timeout, dry_run, stage):
 
 
 @cli.command(help='Destroy K8s Cluster. To override .cluster.yml, run \'konverge init\'')
-@click.option('--timeout', '-t', type=click.INT, help='Wait period phases in seconds. Default: 120 sec.')
+@click.option('--timeout', '-t', type=click.INT, help='Wait period between phases in seconds. Default: 120 sec.')
 @click.option('--dry-run', '-d', is_flag=True, default=False, type=click.BOOL, help='Dry-run (preview) this operation.')
 @click.option('--templates', '-T', is_flag=True, default=False, type=click.BOOL, help='Destroy Cloudinit Templates.')
 @click.option(
