@@ -150,7 +150,7 @@ class KubeProvisioner:
     def generate_keepalived_config(self, virtual_ip, interface, state, priority):
         local = LOCAL
         config_file = 'keepalived.conf'
-        local_workdir = os.path.join(WORKDIR, 'bootstrap')
+        local_workdir = os.path.join(WORKDIR, '.bootstrap')
         local_config_path = os.path.join(local_workdir, config_file)
         local.run(f'mkdir -p {local_workdir}')
 

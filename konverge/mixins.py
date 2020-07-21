@@ -359,8 +359,7 @@ class CommonVMMixin:
         remote_path = f'/opt/kube/bootstrap'
         docker_flavour = 'DOCKER_CE=1' if docker_ce else ''
 
-        print(crayons.white(f'Current workdir: {settings.BASE_PATH}'))
-
+        print(crayons.white(f'Local path: {settings.BASE_PATH}'))
         print(crayons.cyan(f'Copying files {file}, {dashboard_file}, {daemon_file}'))
         template_host_sudo.execute(f'mkdir -p {remote_path}')
         template_host_sudo.execute(f'chown -R $USER:$USER {remote_path}')
