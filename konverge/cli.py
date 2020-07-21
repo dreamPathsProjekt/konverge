@@ -6,7 +6,7 @@ import crayons
 from shutil import copyfile
 
 from konverge import VERSION
-from konverge.kubecluster import KubeCluster
+from konverge.kubecluster import KubeCluster, KubeClusterStages
 from konverge import settings
 
 
@@ -131,10 +131,105 @@ def init(file, pve_file):
 
 
 @cli.command(help='Create K8s Cluster. To override .cluster.yml, run \'konverge init\'')
-@click.option('--timeout', '-t', type=click.INT, help='Wait period between create and bootstrap phase in seconds. Default: 120 sec.')
-@click.option('--dry-run', '-d', is_flag=True, default=False, type=click.BOOL, help='Dry-run (preview) this operation')
-def create(timeout, dry_run):
+@click.option('--timeout', '-t', type=click.INT, help='Wait period between phases in seconds. Default: 120 sec.')
+@click.option('--dry-run', '-d', is_flag=True, default=False, type=click.BOOL, help='Dry-run (preview) this operation.')
+@click.option(
+    '--stage',
+    '-s',
+    default='all',
+    type=click.Choice(
+        [
+            'all',
+            'create',
+            'bootstrap',
+            'join',
+            'post_installs',
+        ]
+    ),
+    help='Creation Stage.')
+def create(timeout, dry_run, stage):
     if not _settings_valid():
         return
+
+    execute_stage = None
+    if stage != 'all':
+        execute_stage = KubeClusterStages.return_value(stage)
+
     cluster = _get_cluster()
-    cluster.execute(wait_period=timeout, dry_run=dry_run) if timeout else cluster.execute(dry_run=dry_run)
+
+    if execute_stage:
+        cluster.execute(
+            wait_period=timeout,
+            dry_run=dry_run,
+            stage=execute_stage
+        ) if timeout else cluster.execute(
+            dry_run=dry_run,
+            stage=execute_stage
+        )
+        return
+
+    cluster.execute(
+        wait_period=timeout,
+        dry_run=dry_run
+    ) if timeout else cluster.execute(dry_run=dry_run)
+
+
+@cli.command(help='Destroy K8s Cluster. To override .cluster.yml, run \'konverge init\'')
+@click.option('--timeout', '-t', type=click.INT, help='Wait period phases in seconds. Default: 120 sec.')
+@click.option('--dry-run', '-d', is_flag=True, default=False, type=click.BOOL, help='Dry-run (preview) this operation.')
+@click.option('--templates', '-T', is_flag=True, default=False, type=click.BOOL, help='Destroy Cloudinit Templates.')
+@click.option(
+    '--stage',
+    '-s',
+    default='all',
+    type=click.Choice(
+        [
+            'all',
+            'workers',
+            'masters',
+            'remove',
+            'post_destroy',
+        ]
+    ),
+    help='Destroy Stage.')
+def destroy(timeout, dry_run, stage, templates):
+    if not _settings_valid():
+        return
+
+    execute_stage = None
+    if stage == 'workers':
+        execute_stage = KubeClusterStages.join
+    elif stage == 'masters':
+        execute_stage = KubeClusterStages.bootstrap
+    elif stage == 'remove':
+        execute_stage = KubeClusterStages.create
+    elif stage == 'post_destroy':
+        execute_stage = KubeClusterStages.post_installs
+
+    cluster = _get_cluster()
+
+    if execute_stage:
+        cluster.execute(
+            destroy=True,
+            wait_period=timeout,
+            dry_run=dry_run,
+            stage=execute_stage,
+            destroy_template=templates
+        ) if timeout else cluster.execute(
+            destroy=True,
+            dry_run=dry_run,
+            stage=execute_stage,
+            destroy_template=templates
+        )
+        return
+
+    cluster.execute(
+        destroy=True,
+        wait_period=timeout,
+        dry_run=dry_run,
+        destroy_template=templates
+    ) if timeout else cluster.execute(
+        destroy=True,
+        dry_run=dry_run,
+        destroy_template=templates
+    )
