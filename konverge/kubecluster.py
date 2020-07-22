@@ -161,7 +161,7 @@ class KubeCluster:
     def destroy(self, template=False, dry_run=False, apply=False, provisioners: list = None):
         if apply:
             if not provisioners:
-                serializers.logging.warning(serializers.crayons.yellow('No worker node to rollback.'))
+                serializers.logging.warning(serializers.crayons.yellow('No worker node to remove.'))
                 return
             for provisioner in provisioners:
                 provisioner.instance.execute(destroy=True, dry_run=dry_run)
