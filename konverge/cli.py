@@ -10,9 +10,14 @@ from konverge.kubecluster import KubeCluster, KubeClusterStages
 from konverge import settings
 
 
+_read_host = lambda: settings.read_pve_credentials().get('host') or os.getenv('PROXMOX_HOST')
+_read_user = lambda: settings.read_pve_credentials().get('user') or os.getenv('PROXMOX_USER')
+_has_password = '********' if settings.read_pve_credentials().get('password') or os.getenv('PROXMOX_PASSWORD') else ''
+
+
 def _hide_password(ctx, param, value):
     if not value or value == '********':
-      return  os.getenv('PROXMOX_PASSWORD')
+      return  settings.read_pve_credentials().get('password') or os.getenv('PROXMOX_PASSWORD')
     return value
 
 
@@ -63,16 +68,15 @@ def cli():
 def version():
     click.echo(VERSION)
 
-
 @cli.command(help='Login to Proxmox API Server.')
-@click.option('--host', '-h', prompt=True, default=lambda: os.getenv('PROXMOX_HOST'), type=click.STRING, help='Proxmox Host.')
-@click.option('--user', '-u', prompt=True, default=lambda: os.getenv('PROXMOX_USER'), type=click.STRING, help='Proxmox Username. Use either @pam or @pve domains.')
+@click.option('--host', '-h', prompt=True, default=_read_host, type=click.STRING, help='Proxmox Host.')
+@click.option('--user', '-u', prompt=True, default=_read_user, type=click.STRING, help='Proxmox Username. Use either @pam or @pve domains.')
 @click.option(
     '--password',
     '-p',
     prompt=True,
     callback=_hide_password,
-    default='********' if os.getenv('PROXMOX_PASSWORD') is not None else '',
+    default=_has_password,
     type=click.STRING,
     help='Proxmox Password.',
     hide_input=True
