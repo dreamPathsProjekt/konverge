@@ -130,7 +130,7 @@ def init(file, pve_file):
     print(crayons.green('Workspace initialized'))
 
 
-@cli.command(help='Create K8s Cluster. To override .cluster.yml, run \'konverge init\'')
+@cli.command(help='Create K8s Cluster.')
 @click.option('--timeout', '-t', type=click.INT, help='Wait period between phases in seconds. Default: 120 sec.')
 @click.option('--dry-run', '-d', is_flag=True, default=False, type=click.BOOL, help='Dry-run (preview) this operation.')
 @click.option(
@@ -174,7 +174,7 @@ def create(timeout, dry_run, stage):
     ) if timeout else cluster.execute(dry_run=dry_run)
 
 
-@cli.command(help='Destroy K8s Cluster. To override .cluster.yml, run \'konverge init\'')
+@cli.command(help='Destroy K8s Cluster.')
 @click.option('--timeout', '-t', type=click.INT, help='Wait period between phases in seconds. Default: 120 sec.')
 @click.option('--dry-run', '-d', is_flag=True, default=False, type=click.BOOL, help='Dry-run (preview) this operation.')
 @click.option('--templates', '-T', is_flag=True, default=False, type=click.BOOL, help='Destroy Cloudinit Templates.')
@@ -233,3 +233,18 @@ def destroy(timeout, dry_run, stage, templates):
         dry_run=dry_run,
         destroy_template=templates
     )
+
+
+@cli.command(help='Apply K8s Cluster (declarative).')
+@click.option('--timeout', '-t', type=click.INT, help='Wait period between phases in seconds. Default: 120 sec.')
+@click.option('--dry-run', '-d', is_flag=True, default=False, type=click.BOOL, help='Dry-run (preview) this operation.')
+def apply(timeout, dry_run):
+    if not _settings_valid():
+        return
+
+    cluster = _get_cluster()
+    cluster.execute(
+        wait_period=timeout,
+        dry_run=dry_run,
+        apply=True
+    ) if timeout else cluster.execute(dry_run=dry_run, apply=True)

@@ -151,14 +151,21 @@ class KubeCluster:
                         reason=f'Worker {worker.instance.vm_attributes.name} is not yet responsive.'
                     )
 
-    def create(self, disable_backups=False, dry_run=False):
+    def create(self, disable_backups=False, dry_run=False, workers_only=False):
         for category, runners in self.runners.items():
             if category == VMCategory.workers.value:
                 [runner.create(disable_backups=disable_backups, dry_run=dry_run) for runner in runners]
             else:
-                runners.create(disable_backups=disable_backups, dry_run=dry_run)
+                runners.create(disable_backups=disable_backups, dry_run=dry_run) if not workers_only else None
 
-    def destroy(self, template=False, dry_run=False):
+    def destroy(self, template=False, dry_run=False, apply=False, provisioners: list = None):
+        if apply:
+            if not provisioners:
+                serializers.logging.warning(serializers.crayons.yellow('No worker node to rollback.'))
+                return
+            for provisioner in provisioners:
+                provisioner.instance.execute(destroy=True, dry_run=dry_run)
+            return
         worker_runners = self.runners.get(VMCategory.workers.value)
         for runner in worker_runners:
             runner.destroy(dry_run=dry_run)
@@ -272,12 +279,16 @@ class KubeCluster:
 
         for role, group in workers.items():
             for worker in group:
+                worker_name = worker.instance.vm_attributes.name
+                if worker_name in self.executor.get_node_names(self.cluster):
+                    serializers.logging.warning(serializers.crayons.yellow(f'Skip worker {worker_name}. Already joined.'))
+                    continue
                 print(serializers.crayons.cyan(f'Joining worker node: {worker.instance.vm_attributes.name}'))
                 worker.join_node(leader=leader.instance, control_plane_node=False) if not dry_run else None
         print(serializers.crayons.green('Successfully joined worker nodes (dry-run)')) if dry_run else None
         print()
 
-    def rollback_workers(self, dry_run=False):
+    def rollback_workers(self, dry_run=False, apply=False, provisioners: list = None):
         if dry_run:
             title = f'Rollback Worker Nodes.'
             horizontal_sep = '=' * len(title)
@@ -285,16 +296,70 @@ class KubeCluster:
             print(serializers.crayons.green(title))
             print(serializers.crayons.green(horizontal_sep))
             print()
-        workers = self.provisioners.get(VMCategory.workers.value)
-        for role, group in workers.items():
-            for worker in group:
+        if apply:
+            if not provisioners:
+                serializers.logging.warning(serializers.crayons.yellow('No worker node to rollback.'))
+                return
+            for worker in provisioners:
                 print(serializers.crayons.cyan(f'Rollback worker node: {worker.instance.vm_attributes.name}'))
                 worker.rollback_node() if not dry_run else None
                 self.executor.remove_cluster_node(instance=worker.instance) if not dry_run else None
+        else:
+            workers = self.provisioners.get(VMCategory.workers.value)
+            for role, group in workers.items():
+                for worker in group:
+                    print(serializers.crayons.cyan(f'Rollback worker node: {worker.instance.vm_attributes.name}'))
+                    worker.rollback_node() if not dry_run else None
+                    self.executor.remove_cluster_node(instance=worker.instance) if not dry_run else None
         wait = 0 if dry_run else 60
         self.wait(wait_period=wait, reason='Wait for Rollback to complete')
         print(serializers.crayons.green('Successfully removed worker nodes (dry-run)')) if dry_run else None
         print()
+
+    def get_downscaled_workers(self, diff_map: dict):
+        remove_nodes = []
+        if not diff_map:
+            return remove_nodes
+
+        nodes = self.executor.get_node_names(self.cluster)
+        worker_serializers = list(
+            map(
+                lambda worker: worker.name,
+                filter(
+                    lambda worker: diff_map.get(worker.name) and diff_map.get(worker.name) < 0,
+                    self.workers
+                )
+            )
+        )
+        for serializer_name in worker_serializers:
+            remove_nodes.extend(list(filter(lambda node: str(node).startswith(serializer_name), nodes)))
+        for role, group in self.provisioners.get(VMCategory.workers.value).items():
+            for provisioner in group:
+                if provisioner.instance.vm_attributes.name in remove_nodes:
+                    remove_nodes.remove(provisioner.instance.vm_attributes.name)
+        return remove_nodes
+
+    def get_downscaled_provisioners(self, diff_map: dict):
+        provisioners = []
+        remove_nodes = self.get_downscaled_workers(diff_map)
+        if not remove_nodes:
+            return provisioners
+
+        for node_name in remove_nodes:
+            query = serializers.VMQuery(
+                client=serializers.settings.vm_client,
+                name=node_name,
+                pool=self.cluster.cluster.pool
+            )
+            answer = query.execute()
+            instance = answer[0] if answer else None
+            provisioners.append(
+                KubeProvisioner.kube_provisioner_factory(os_type=instance.vm_attributes.os_type)(
+                    instance=instance,
+                    control_plane=self.control_plane.control_plane
+                )
+            ) if instance else None
+        return provisioners
 
     def post_installs(self, dry_run=False):
         # TODO: Support loadbalancer arguments yaml file, version, interface, from .cluster.yml - method supports it.
@@ -444,6 +509,35 @@ class KubeCluster:
                 else:
                     self.executor.apply_label_node(role=role, instance_name=worker.instance.vm_attributes.name)
 
+    def calculate_diff(self):
+        print()
+        nodes = self.executor.get_node_names(self.cluster)
+        title = f'Cluster {self.cluster.cluster.name} - Nodes'
+        horizontal_sep = '=' * len(title)
+        print(serializers.crayons.cyan(title))
+        print(serializers.crayons.cyan(horizontal_sep))
+        [print(serializers.crayons.white(node)) for node in nodes]
+        print()
+
+        title = f'Cluster {self.cluster.cluster.name} - Scale Differences'
+        horizontal_sep = '=' * len(title)
+        print(serializers.crayons.cyan(title))
+        print(serializers.crayons.cyan(horizontal_sep))
+        diff_map = {worker.name: 0 for worker in self.workers}
+        for worker in self.workers:
+            group = list(filter(lambda node: worker.name in node, nodes))
+            diff_map[worker.name] = int(worker.scale) - len(group)
+        for worker_name, diff in diff_map.items():
+            if diff > 0:
+                color = serializers.crayons.green
+            elif diff < 0:
+                color = serializers.crayons.red
+            else:
+                color = serializers.crayons.white
+            print(serializers.crayons.white(f'{worker_name}: ') + color(diff))
+        print()
+        return diff_map
+
     def execute(
             self,
             destroy=False,
@@ -451,17 +545,20 @@ class KubeCluster:
             disable_backups=True,
             wait_period=120,
             stage: typing.Union[KubeClusterStages, None] = None,
-            dry_run=False
+            dry_run=False,
+            apply=False
     ):
         if self.exists and not destroy:
-            serializers.logging.warning(
-                serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
-            )
-            return
+            if not apply:
+                serializers.logging.warning(
+                    serializers.crayons.yellow(f'Cluster {self.cluster.cluster.name} already exists. Abort...')
+                )
+                return
+            self.executor = self._generate_executor(dry_run=dry_run, destroy=destroy) if apply else None
 
         stagemsg = f' Stage: {stage.value}' if stage else ''
         dry = ' (dry-run)' if dry_run else ''
-        action = 'destroyed' if destroy else 'created'
+        action = 'destroyed' if destroy else ('updated' if apply else 'created')
         msg = f'Cluster {self.cluster.cluster.name} successfully {action}.{stagemsg}{dry}'
         stage_output = serializers.crayons.yellow(f'Running Stage: {stage.value}') if stage else ''
         stage_create = serializers.crayons.yellow(f'Running Stage: {KubeClusterStages.create.value}')
@@ -501,6 +598,18 @@ class KubeCluster:
                 print(stage_output)
                 self.executor = self._generate_executor(destroy=True, dry_run=dry_run)
                 self.post_destroy(dry_run=dry_run)
+            print(serializers.crayons.green(msg))
+            return
+
+        if apply:
+            diff_map = self.calculate_diff()
+            provisioners = self.get_downscaled_provisioners(diff_map)
+            print(serializers.crayons.cyan('Adding new K8s Nodes...'))
+            self.create(disable_backups=disable_backups, dry_run=dry_run, workers_only=True)
+            self.join_workers(dry_run=dry_run)
+            print(serializers.crayons.cyan('Removing K8s Nodes...'))
+            self.rollback_workers(dry_run=dry_run, apply=apply, provisioners=provisioners)
+            self.destroy(dry_run=dry_run, apply=apply, provisioners=provisioners)
             print(serializers.crayons.green(msg))
             return
 
