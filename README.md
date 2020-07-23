@@ -47,7 +47,7 @@ echo "source <(kubectl completion bash)" >> "${HOME}"/.bashrc
 # Upgrade pip to version > 20.0.2
 pip install --upgrade pip
 # Install tag version
-pip install -e git+https://github.com/dreamPathsProjekt/konverge@v0.8.2#egg=konverge
+pip install -e git+https://github.com/dreamPathsProjekt/konverge@v0.8.3#egg=konverge
 # Install from master
 pip install -e git+https://github.com/dreamPathsProjekt/konverge#egg=konverge
 ```
