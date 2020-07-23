@@ -858,9 +858,11 @@ class KubeExecutor:
     def apply_label_node(self, role, instance_name):
         prepend = f'HOME={self.home}'
         label_node = f'node-role.kubernetes.io/{role}='
-        labeled = self.local.run(f'{prepend} kubectl label nodes {instance_name} {label_node}')
+        labeled = self.local.run(f'{prepend} kubectl label nodes {instance_name} {label_node}', warn=True)
         if labeled.ok:
             print(crayons.green(f'Added label {label_node} to {instance_name}'))
+        else:
+            logging.warning(crayons.yellow(f'Label {label_node} already exists on {instance_name}'))
 
     def helm_install_v2(self, patch=True, helm=True, tiller=True):
         prepend = f'HOME={self.home}'

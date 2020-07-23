@@ -607,6 +607,7 @@ class KubeCluster:
             print(serializers.crayons.cyan('Adding new K8s Nodes...'))
             self.create(disable_backups=disable_backups, dry_run=dry_run, workers_only=True)
             self.join_workers(dry_run=dry_run)
+            self.label_workers(dry_run=dry_run)
             print(serializers.crayons.cyan('Removing K8s Nodes...'))
             self.rollback_workers(dry_run=dry_run, apply=apply, provisioners=provisioners)
             self.destroy(dry_run=dry_run, apply=apply, provisioners=provisioners)
