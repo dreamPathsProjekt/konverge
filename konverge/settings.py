@@ -84,6 +84,8 @@ try:
     node_scale = len(pve_cluster_config_client.get_nodes())
 except Exception as import_error:
     logging.error(crayons.red(import_error))
+    pve_cluster_config_client = None
+    node_scale = None
 
 
 VMAPIClientFactory = ProxmoxAPIClient.api_client_factory(instance_type='vm')
