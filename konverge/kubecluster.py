@@ -572,7 +572,7 @@ class KubeCluster:
             print()
             if not stage:
                 print(stage_join)
-                self.executor = self._generate_executor(destroy=True, dry_run=dry_run)
+                self.executor = self._generate_executor(dry_run=dry_run)
                 self.rollback_workers(dry_run=dry_run)
                 print(stage_bootstrap)
                 self.rollback_control_plane(dry_run=dry_run)
@@ -586,7 +586,7 @@ class KubeCluster:
             print()
             if stage.value == KubeClusterStages.join.value:
                 print(stage_output)
-                self.executor = self._generate_executor(destroy=True, dry_run=dry_run)
+                self.executor = self._generate_executor(dry_run=dry_run)
                 self.rollback_workers(dry_run=dry_run)
             if stage.value == KubeClusterStages.bootstrap.value:
                 print(stage_output)
