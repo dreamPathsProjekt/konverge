@@ -124,12 +124,12 @@ class KubeProvisioner:
     def generate_keepalived_healthcheck(self, virtual_ip):
         local = LOCAL
         script_file = 'check_apiserver.sh'
-        local_workdir = os.path.join(WORKDIR, 'bootstrap')
+        local_workdir = os.path.join(WORKDIR, '.bootstrap')
         local_script_path = os.path.join(local_workdir, script_file)
         local.run(f'mkdir -p {local_workdir}')
 
         check_apiserver_sh = (
-            '# !/bin/sh',
+            '#!/bin/sh',
             '',
             'errorExit() {',
             '    echo "*** $*" 1>&2',
