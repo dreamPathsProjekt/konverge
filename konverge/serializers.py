@@ -188,9 +188,9 @@ class ClusterInstanceSerializer:
 
         try:
             storage_type = Storage.return_value(pve_storage.get('type'))
-        except AttributeError as attr_error:
+        except AttributeError:
             storage_type = None
-            logging.warning(crayons.yellow(attr_error))
+            logging.warning(crayons.yellow(f'No storage config for instance {self.name}. Using template storage definition.'))
         return storage_type, None
 
     def serialize(self):
