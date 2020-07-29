@@ -123,7 +123,7 @@ class KubeCluster:
             # return dummy executor
             return serializers.KubeExecutor()
 
-        self._wait_for_masters_alive()
+        self._wait_for_masters_alive() if not destroy else None
         return serializers.KubeExecutor(
             leader.self_node
         ) if not destroy else serializers.KubeExecutor()
