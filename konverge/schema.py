@@ -254,7 +254,7 @@ KUBE_CLUSTER_SCHEMA = {
                     'role': {'type': 'string'},
                     'scale': {
                         'type': 'integer',
-                        'minimum': 1
+                        'minimum': 0
                     },
                     'cpus': {
                         'type': 'integer',
