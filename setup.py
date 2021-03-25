@@ -32,7 +32,7 @@ setup(
         "proxmoxer ==1.0.4",
         "pycparser ==2.19",
         "PyNaCl ==1.3.0",
-        "PyYAML ==5.3",
+        "PyYAML ==5.4",
         "requests ==2.22.0",
         "retrying ==1.3.3",
         "six ==1.14.0",
