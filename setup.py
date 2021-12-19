@@ -36,7 +36,7 @@ setup(
         "requests ==2.22.0",
         "retrying ==1.3.3",
         "six ==1.14.0",
-        "urllib3 ==1.25.8"
+        "urllib3 ==1.26.5"
     ],
     entry_points="""
     [console_scripts]
