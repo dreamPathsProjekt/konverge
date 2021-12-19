@@ -19,7 +19,7 @@ setup(
         "click ==7.1.1",
         "colorama ==0.4.3",
         "crayons ==0.3.0",
-        "cryptography ==3.2",
+        "cryptography ==3.3.2",
         "fabric2 ==2.5.0",
         "idna ==2.8",
         "invoke ==1.4.1",
