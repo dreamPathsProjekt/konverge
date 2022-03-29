@@ -28,7 +28,7 @@ setup(
         "importlib-metadata ==1.5.0",
         "pyrsistent ==0.15.7",
         "zipp ==2.1.0",
-        "paramiko ==2.7.1",
+        "paramiko ==2.10.1",
         "proxmoxer ==1.0.4",
         "pycparser ==2.19",
         "PyNaCl ==1.3.0",
